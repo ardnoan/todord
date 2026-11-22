@@ -18,6 +18,10 @@ import {
   ChevronRight,
   Activity,
   Flame,
+  Briefcase,
+  User,
+  GraduationCap,
+  Filter,
 } from "lucide-react";
 import type { StickyNote as StickyNoteType, Task } from "../types";
 
@@ -56,13 +60,67 @@ export function DashboardView({
   const todayTasks = activeTasks.filter((t) => t.dueDate === todayStr);
   const highPriorityTasks = activeTasks.filter((t) => t.priority === "high");
 
-  // Category Distribution
-  const categories = ["Personal", "Work", "Study"];
-  const categoryStats = categories.map((cat) => {
-    const total = tasks.filter((t) => t.category === cat).length;
-    const active = activeTasks.filter((t) => t.category === cat).length;
-    return { name: cat, total, active };
-  });
+  // Category Quick Filter & Analytics Tab States
+  const [categoryFilter, setCategoryFilter] = useState<"all" | "Work" | "Personal" | "Study">("all");
+  const [analyticsTab, setAnalyticsTab] = useState<"calendar" | "heatmap">("calendar");
+
+  // Filtered metrics based on active category filter
+  const displayActiveTasks = useMemo(() => {
+    if (categoryFilter === "all") return activeTasks;
+    return activeTasks.filter((t) => t.category === categoryFilter);
+  }, [activeTasks, categoryFilter]);
+
+  const displayTodayTasks = useMemo(() => {
+    return displayActiveTasks.filter((t) => t.dueDate === todayStr);
+  }, [displayActiveTasks, todayStr]);
+
+  const displayCompletedTasks = useMemo(() => {
+    if (categoryFilter === "all") return tasks.filter((t) => t.completed);
+    return tasks.filter((t) => t.completed && t.category === categoryFilter);
+  }, [tasks, categoryFilter]);
+
+  const displayHighPriority = useMemo(() => {
+    return displayActiveTasks.filter((t) => t.priority === "high");
+  }, [displayActiveTasks]);
+
+  // Category Cluster Breakdown (Work, Personal, Study) with dedicated metrics
+  const categoryClusterStats = useMemo(() => {
+    return [
+      {
+        name: "Work",
+        label: "Pekerjaan",
+        icon: Briefcase,
+        colorKey: "blue",
+        active: activeTasks.filter((t) => t.category === "Work").length,
+        today: activeTasks.filter((t) => t.category === "Work" && t.dueDate === todayStr).length,
+        highPriority: activeTasks.filter((t) => t.category === "Work" && t.priority === "high").length,
+        completed: tasks.filter((t) => t.category === "Work" && t.completed).length,
+        total: tasks.filter((t) => t.category === "Work").length,
+      },
+      {
+        name: "Personal",
+        label: "Pribadi",
+        icon: User,
+        colorKey: "purple",
+        active: activeTasks.filter((t) => t.category === "Personal").length,
+        today: activeTasks.filter((t) => t.category === "Personal" && t.dueDate === todayStr).length,
+        highPriority: activeTasks.filter((t) => t.category === "Personal" && t.priority === "high").length,
+        completed: tasks.filter((t) => t.category === "Personal" && t.completed).length,
+        total: tasks.filter((t) => t.category === "Personal").length,
+      },
+      {
+        name: "Study",
+        label: "Belajar & Kuliah",
+        icon: GraduationCap,
+        colorKey: "amber",
+        active: activeTasks.filter((t) => t.category === "Study").length,
+        today: activeTasks.filter((t) => t.category === "Study" && t.dueDate === todayStr).length,
+        highPriority: activeTasks.filter((t) => t.category === "Study" && t.priority === "high").length,
+        completed: tasks.filter((t) => t.category === "Study" && t.completed).length,
+        total: tasks.filter((t) => t.category === "Study").length,
+      },
+    ];
+  }, [tasks, activeTasks, todayStr]);
 
   // ─── Calendar Widget State ───
   const [calMonth, setCalMonth] = useState(() => new Date());
@@ -241,78 +299,168 @@ export function DashboardView({
         </div>
       </section>
 
-      {/* 2. Key Metrics Row (Klik langsung membuka Pop-up Aksi di Dashboard!) */}
-      <section className="dashboard-metrics-grid">
-        <div
-          className="metric-card metric-interactive"
-          onClick={() => onOpenActionModal("today")}
-          title="Buka pop-up aksi Tugas Hari Ini"
-        >
-          <div className="metric-header">
-            <span className="metric-icon metric-icon-sun">
-              <Sun size={17} />
-            </span>
-            <span className="metric-arrow">
-              <ArrowRight size={14} />
-            </span>
+      {/* 2. Key Metrics & Category Quick Switcher */}
+      <section className="dashboard-metrics-section">
+        <div className="metrics-category-bar">
+          <div className="metrics-category-label">
+            <Filter size={13} />
+            <span>Filter Kategori:</span>
           </div>
-          <strong>{todayTasks.length}</strong>
-          <span className="metric-label">Tugas Hari Ini</span>
-          <small className="metric-hint">Klik untuk buka pop-up aksi</small>
+          <div className="category-pill-group">
+            <button
+              type="button"
+              className={`cat-pill-btn ${categoryFilter === "all" ? "active" : ""}`}
+              onClick={() => setCategoryFilter("all")}
+            >
+              Semua ({activeTasks.length})
+            </button>
+            <button
+              type="button"
+              className={`cat-pill-btn pill-work ${categoryFilter === "Work" ? "active" : ""}`}
+              onClick={() => setCategoryFilter("Work")}
+            >
+              <Briefcase size={12} />
+              <span>Work ({categoryClusterStats[0].active})</span>
+            </button>
+            <button
+              type="button"
+              className={`cat-pill-btn pill-personal ${categoryFilter === "Personal" ? "active" : ""}`}
+              onClick={() => setCategoryFilter("Personal")}
+            >
+              <User size={12} />
+              <span>Personal ({categoryClusterStats[1].active})</span>
+            </button>
+            <button
+              type="button"
+              className={`cat-pill-btn pill-study ${categoryFilter === "Study" ? "active" : ""}`}
+              onClick={() => setCategoryFilter("Study")}
+            >
+              <GraduationCap size={12} />
+              <span>Study ({categoryClusterStats[2].active})</span>
+            </button>
+          </div>
         </div>
 
-        <div
-          className="metric-card metric-interactive"
-          onClick={() => onOpenActionModal("active")}
-          title="Buka pop-up aksi Semua Tugas Aktif"
-        >
-          <div className="metric-header">
-            <span className="metric-icon metric-icon-active">
-              <Layers size={17} />
+        <div className="dashboard-metrics-grid">
+          <div
+            className="metric-card metric-interactive"
+            onClick={() => onOpenActionModal("today")}
+            title="Buka pop-up aksi Tugas Hari Ini"
+          >
+            <div className="metric-header">
+              <span className="metric-icon metric-icon-sun">
+                <Sun size={17} />
+              </span>
+              <span className="metric-arrow">
+                <ArrowRight size={14} />
+              </span>
+            </div>
+            <strong>{displayTodayTasks.length}</strong>
+            <span className="metric-label">
+              Tugas Hari Ini {categoryFilter !== "all" && `(${categoryFilter})`}
             </span>
-            <span className="metric-arrow">
-              <ArrowRight size={14} />
-            </span>
+            <div className="metric-breakdown-tags">
+              {categoryFilter === "all" ? (
+                <>
+                  <span className="m-tag m-tag-blue" title="Work hari ini">W: {categoryClusterStats[0].today}</span>
+                  <span className="m-tag m-tag-purple" title="Personal hari ini">P: {categoryClusterStats[1].today}</span>
+                  <span className="m-tag m-tag-amber" title="Study hari ini">S: {categoryClusterStats[2].today}</span>
+                </>
+              ) : (
+                <span className="m-tag m-tag-cat">{categoryFilter}</span>
+              )}
+              {displayTodayTasks.some((t) => t.priority === "high") && (
+                <span className="m-tag m-tag-high" title="Ada tugas mendesak hari ini">
+                  <Flame size={10} /> Mendesak
+                </span>
+              )}
+            </div>
           </div>
-          <strong>{activeTasks.length}</strong>
-          <span className="metric-label">Total Tugas Aktif</span>
-          <small className="metric-hint">Klik untuk kelola di pop-up</small>
-        </div>
 
-        <div
-          className="metric-card metric-interactive"
-          onClick={() => onOpenActionModal("completed")}
-          title="Buka pop-up aksi Tugas Selesai"
-        >
-          <div className="metric-header">
-            <span className="metric-icon metric-icon-green">
-              <CheckCircle2 size={17} />
+          <div
+            className="metric-card metric-interactive"
+            onClick={() => onOpenActionModal("active")}
+            title="Buka pop-up aksi Semua Tugas Aktif"
+          >
+            <div className="metric-header">
+              <span className="metric-icon metric-icon-active">
+                <Layers size={17} />
+              </span>
+              <span className="metric-arrow">
+                <ArrowRight size={14} />
+              </span>
+            </div>
+            <strong>{displayActiveTasks.length}</strong>
+            <span className="metric-label">
+              Total Tugas Aktif {categoryFilter !== "all" && `(${categoryFilter})`}
             </span>
-            <span className="metric-arrow">
-              <ArrowRight size={14} />
-            </span>
+            <div className="metric-breakdown-tags">
+              {categoryFilter === "all" ? (
+                <>
+                  <span className="m-tag m-tag-blue" title="Work aktif">W: {categoryClusterStats[0].active}</span>
+                  <span className="m-tag m-tag-purple" title="Personal aktif">P: {categoryClusterStats[1].active}</span>
+                  <span className="m-tag m-tag-amber" title="Study aktif">S: {categoryClusterStats[2].active}</span>
+                </>
+              ) : (
+                <span className="m-tag m-tag-cat">{categoryFilter}</span>
+              )}
+              {displayHighPriority.length > 0 && (
+                <span className="m-tag m-tag-high" title="Jumlah tugas prioritas tinggi">
+                  <Flame size={10} /> {displayHighPriority.length} Tinggi
+                </span>
+              )}
+            </div>
           </div>
-          <strong>{completedTasks}</strong>
-          <span className="metric-label">Tugas Terselesaikan</span>
-          <small className="metric-hint">Klik untuk riwayat tugas</small>
-        </div>
 
-        <div
-          className="metric-card metric-interactive"
-          onClick={onCreateStickyNote}
-          title="Tambah catatan tempel baru"
-        >
-          <div className="metric-header">
-            <span className="metric-icon metric-icon-amber">
-              <Pin size={17} />
+          <div
+            className="metric-card metric-interactive"
+            onClick={() => onOpenActionModal("completed")}
+            title="Buka pop-up aksi Tugas Selesai"
+          >
+            <div className="metric-header">
+              <span className="metric-icon metric-icon-green">
+                <CheckCircle2 size={17} />
+              </span>
+              <span className="metric-arrow">
+                <ArrowRight size={14} />
+              </span>
+            </div>
+            <strong>{displayCompletedTasks.length}</strong>
+            <span className="metric-label">
+              Tugas Selesai {categoryFilter !== "all" && `(${categoryFilter})`}
             </span>
-            <span className="metric-arrow">
-              <Plus size={14} />
-            </span>
+            <div className="metric-breakdown-tags">
+              {categoryFilter === "all" ? (
+                <>
+                  <span className="m-tag m-tag-blue" title="Work selesai">W: {categoryClusterStats[0].completed}</span>
+                  <span className="m-tag m-tag-purple" title="Personal selesai">P: {categoryClusterStats[1].completed}</span>
+                  <span className="m-tag m-tag-amber" title="Study selesai">S: {categoryClusterStats[2].completed}</span>
+                </>
+              ) : (
+                <span className="m-tag m-tag-cat">{categoryFilter}</span>
+              )}
+            </div>
           </div>
-          <strong>{stickyNotes.length}</strong>
-          <span className="metric-label">Catatan Tempel Bebas</span>
-          <small className="metric-hint">Murni catatan (tanpa progres)</small>
+
+          <div
+            className="metric-card metric-interactive"
+            onClick={onCreateStickyNote}
+            title="Tambah catatan tempel baru"
+          >
+            <div className="metric-header">
+              <span className="metric-icon metric-icon-amber">
+                <Pin size={17} />
+              </span>
+              <span className="metric-arrow">
+                <Plus size={14} />
+              </span>
+            </div>
+            <strong>{stickyNotes.length}</strong>
+            <span className="metric-label">Catatan Tempel Bebas</span>
+            <div className="metric-breakdown-tags">
+              <span className="m-tag m-tag-note">Murni catatan (tanpa progres)</span>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -387,178 +535,199 @@ export function DashboardView({
         )}
       </section>
 
-      {/* 4. Calendar & Activity Monitoring */}
-      <div className="dashboard-columns-grid">
-        {/* Calendar Widget */}
-        <section className="dashboard-panel-card">
-          <div className="panel-card-heading">
-            <span className="panel-badge">
-              <Calendar size={14} />
-            </span>
-            <div className="panel-card-heading-content">
-              <div className="panel-card-heading-row">
-                <h3>Kalender Tugas</h3>
-                <span className="cal-today-sync-badge" title="Tugas aktif yang jatuh tempo hari ini">
-                  {todayTasks.length} tugas hari ini
+      {/* 4. Kalender & Monitoring Analitik Terpadu (Sleek Compact di Desktop) */}
+      <section className="dashboard-panel-card dashboard-analytics-unified">
+        <div className="analytics-unified-header">
+          <div className="panel-card-heading-content">
+            <div className="panel-card-heading-row">
+              <div className="analytics-title-group">
+                <span className="panel-badge">
+                  {analyticsTab === "calendar" ? <Calendar size={14} /> : <Activity size={14} />}
                 </span>
-              </div>
-              <p>Tersinkronisasi otomatis dengan tugas & tenggat waktu</p>
-            </div>
-          </div>
-
-          <div className="cal-widget">
-            <div className="cal-nav">
-              <button type="button" className="cal-nav-btn" onClick={prevMonth} title="Bulan sebelumnya">
-                <ChevronLeft size={16} />
-              </button>
-              <span className="cal-month-label">{calMonthLabel}</span>
-              <button type="button" className="cal-nav-btn" onClick={nextMonth} title="Bulan berikutnya">
-                <ChevronRight size={16} />
-              </button>
-            </div>
-
-            <div className="cal-grid">
-              {["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"].map((d) => (
-                <div key={d} className="cal-day-header">{d}</div>
-              ))}
-              {calendarData.map((cell, i) =>
-                cell === null ? (
-                  <div key={`empty-${i}`} className="cal-day cal-day-empty" />
-                ) : (
-                  <div
-                    key={cell.dateKey}
-                    className={[
-                      "cal-day",
-                      cell.isToday ? "cal-day-today" : "",
-                      cell.total > 0 ? "cal-day-has-tasks" : "",
-                      cell.total > 0 && cell.completed === cell.total ? "cal-day-all-done" : "",
-                      hoveredDay === cell.dateKey ? "cal-day-hover" : "",
-                    ].join(" ")}
-                    onMouseEnter={() => setHoveredDay(cell.dateKey)}
-                    onMouseLeave={() => setHoveredDay(null)}
-                    onClick={() => {
-                      if (cell.total > 0) {
-                        onOpenActionModal(cell.isToday ? "today" : "active");
-                      }
-                    }}
-                    style={{ cursor: cell.total > 0 ? "pointer" : "default" }}
-                    title={
-                      cell.total > 0
-                        ? `${cell.day}: ${cell.total} tugas (${cell.completed} selesai) - Klik untuk buka aksi`
-                        : `${cell.day}`
-                    }
-                  >
-                    <span className="cal-day-num">{cell.day}</span>
-                    {cell.total > 0 && (
-                      <span className="cal-day-badge">
-                        {cell.completed === cell.total ? (
-                          <Check size={8} />
-                        ) : (
-                          cell.total
-                        )}
+                <div>
+                  <div className="panel-card-heading-row">
+                    <h3>{analyticsTab === "calendar" ? "Kalender Tugas Bulanan" : "Peta Aktivitas & Monitoring"}</h3>
+                    {analyticsTab === "calendar" && (
+                      <span className="cal-today-sync-badge" title="Tugas aktif yang jatuh tempo hari ini">
+                        {todayTasks.length} tugas hari ini
                       </span>
                     )}
                   </div>
-                )
-              )}
-            </div>
+                  <p>
+                    {analyticsTab === "calendar"
+                      ? "Tersinkronisasi otomatis dengan tenggat tugas (klik tanggal untuk buka aksi)"
+                      : "Peta intensitas aktivitas penyelesaian tugas 16 minggu terakhir"}
+                  </p>
+                </div>
+              </div>
 
-            <div className="cal-footer">
-              <div className="cal-legend-item">
-                <span className="cal-legend-dot cal-legend-today" /> Hari ini
-              </div>
-              <div className="cal-legend-item">
-                <span className="cal-legend-dot cal-legend-tasks" /> Ada tugas
-              </div>
-              <div className="cal-legend-item">
-                <span className="cal-legend-dot cal-legend-done" /> Semua selesai
+              {/* Segmented Tab Switcher */}
+              <div className="analytics-tab-switcher">
+                <button
+                  type="button"
+                  className={`analytics-tab-btn ${analyticsTab === "calendar" ? "active" : ""}`}
+                  onClick={() => setAnalyticsTab("calendar")}
+                  title="Lihat Kalender Tugas Bulanan"
+                >
+                  <Calendar size={13} />
+                  <span>Kalender Tugas</span>
+                </button>
+                <button
+                  type="button"
+                  className={`analytics-tab-btn ${analyticsTab === "heatmap" ? "active" : ""}`}
+                  onClick={() => setAnalyticsTab("heatmap")}
+                  title="Lihat Peta Aktivitas 16 Minggu"
+                >
+                  <Activity size={13} />
+                  <span>Aktivitas & Heatmap</span>
+                </button>
               </div>
             </div>
           </div>
-        </section>
+        </div>
 
-        {/* Activity Heatmap Widget */}
-        <section className="dashboard-panel-card">
-          <div className="panel-card-heading">
-            <span className="panel-badge">
-              <Activity size={14} />
-            </span>
-            <div>
-              <h3>Aktivitas & Monitoring</h3>
-              <p>Peta aktivitas tugas 16 minggu terakhir</p>
-            </div>
-          </div>
+        {/* Tab Content Body */}
+        <div className="analytics-tab-body">
+          {analyticsTab === "calendar" ? (
+            <div className="cal-widget cal-widget-compact">
+              <div className="cal-nav">
+                <button type="button" className="cal-nav-btn" onClick={prevMonth} title="Bulan sebelumnya">
+                  <ChevronLeft size={16} />
+                </button>
+                <span className="cal-month-label">{calMonthLabel}</span>
+                <button type="button" className="cal-nav-btn" onClick={nextMonth} title="Bulan berikutnya">
+                  <ChevronRight size={16} />
+                </button>
+              </div>
 
-          <div className="heatmap-widget">
-            {/* Month labels row */}
-            <div
-              className="heatmap-month-labels"
-              style={{ gridTemplateColumns: `28px repeat(${heatmapData.WEEKS}, 1fr)` }}
-            >
-              <span /> {/* spacer for day labels column */}
-              {Array.from({ length: heatmapData.WEEKS }, (_, col) => {
-                const ml = heatmapData.monthLabels.find((m) => m.col === col);
-                return (
-                  <span key={col} className="heatmap-month-label">
-                    {ml ? ml.label : ""}
-                  </span>
-                );
-              })}
-            </div>
-
-            {/* Heatmap grid: 7 rows × WEEKS columns */}
-            <div className="heatmap-grid-wrap">
-              {/* Day labels column */}
-              <div className="heatmap-day-labels">
-                {dayLabelsHeatmap.map((d, i) => (
-                  <span key={d} className="heatmap-day-label">
-                    {i % 2 === 1 ? d : ""}
-                  </span>
+              <div className="cal-grid">
+                {["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"].map((d) => (
+                  <div key={d} className="cal-day-header">{d}</div>
                 ))}
+                {calendarData.map((cell, i) =>
+                  cell === null ? (
+                    <div key={`empty-${i}`} className="cal-day cal-day-empty" />
+                  ) : (
+                    <div
+                      key={cell.dateKey}
+                      className={[
+                        "cal-day",
+                        cell.isToday ? "cal-day-today" : "",
+                        cell.total > 0 ? "cal-day-has-tasks" : "",
+                        cell.total > 0 && cell.completed === cell.total ? "cal-day-all-done" : "",
+                        hoveredDay === cell.dateKey ? "cal-day-hover" : "",
+                      ].join(" ")}
+                      onMouseEnter={() => setHoveredDay(cell.dateKey)}
+                      onMouseLeave={() => setHoveredDay(null)}
+                      onClick={() => {
+                        if (cell.total > 0) {
+                          onOpenActionModal(cell.isToday ? "today" : "active");
+                        }
+                      }}
+                      style={{ cursor: cell.total > 0 ? "pointer" : "default" }}
+                      title={
+                        cell.total > 0
+                          ? `${cell.day}: ${cell.total} tugas (${cell.completed} selesai) - Klik untuk buka aksi`
+                          : `${cell.day}`
+                      }
+                    >
+                      <span className="cal-day-num">{cell.day}</span>
+                      {cell.total > 0 && (
+                        <span className="cal-day-badge">
+                          {cell.completed === cell.total ? (
+                            <Check size={8} />
+                          ) : (
+                            cell.total
+                          )}
+                        </span>
+                      )}
+                    </div>
+                  )
+                )}
               </div>
 
-              {/* The grid of cells */}
+              <div className="cal-footer">
+                <div className="cal-legend-item">
+                  <span className="cal-legend-dot cal-legend-today" /> Hari ini
+                </div>
+                <div className="cal-legend-item">
+                  <span className="cal-legend-dot cal-legend-tasks" /> Ada tugas
+                </div>
+                <div className="cal-legend-item">
+                  <span className="cal-legend-dot cal-legend-done" /> Semua selesai
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="heatmap-widget heatmap-widget-compact">
+              {/* Month labels row */}
               <div
-                className="heatmap-grid"
-                style={{
-                  gridTemplateColumns: `repeat(${heatmapData.WEEKS}, 1fr)`,
-                  gridTemplateRows: "repeat(7, 1fr)",
-                }}
+                className="heatmap-month-labels"
+                style={{ gridTemplateColumns: `28px repeat(${heatmapData.WEEKS}, 1fr)` }}
               >
-                {heatmapData.cells.map((cell) => (
-                  <div
-                    key={cell.dateKey}
-                    className={`heatmap-cell heatmap-level-${heatmapData.getLevel(cell.count)}${cell.isToday ? " heatmap-cell-today" : ""}`}
-                    style={{ gridColumn: cell.col + 1, gridRow: cell.row + 1 }}
-                    title={`${cell.dateKey}: ${cell.count} aktivitas`}
-                  />
-                ))}
+                <span />
+                {Array.from({ length: heatmapData.WEEKS }, (_, col) => {
+                  const ml = heatmapData.monthLabels.find((m) => m.col === col);
+                  return (
+                    <span key={col} className="heatmap-month-label">
+                      {ml ? ml.label : ""}
+                    </span>
+                  );
+                })}
+              </div>
+
+              {/* Heatmap grid */}
+              <div className="heatmap-grid-wrap">
+                <div className="heatmap-day-labels">
+                  {dayLabelsHeatmap.map((d, i) => (
+                    <span key={d} className="heatmap-day-label">
+                      {i % 2 === 1 ? d : ""}
+                    </span>
+                  ))}
+                </div>
+
+                <div
+                  className="heatmap-grid"
+                  style={{
+                    gridTemplateColumns: `repeat(${heatmapData.WEEKS}, 1fr)`,
+                    gridTemplateRows: "repeat(7, 1fr)",
+                  }}
+                >
+                  {heatmapData.cells.map((cell) => (
+                    <div
+                      key={cell.dateKey}
+                      className={`heatmap-cell heatmap-level-${heatmapData.getLevel(cell.count)}${cell.isToday ? " heatmap-cell-today" : ""}`}
+                      style={{ gridColumn: cell.col + 1, gridRow: cell.row + 1 }}
+                      title={`${cell.dateKey}: ${cell.count} aktivitas`}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Legend & Stats */}
+              <div className="heatmap-footer">
+                <div className="heatmap-legend">
+                  <span className="heatmap-legend-label">Sedikit</span>
+                  {[0, 1, 2, 3, 4].map((lvl) => (
+                    <span key={lvl} className={`heatmap-legend-cell heatmap-level-${lvl}`} />
+                  ))}
+                  <span className="heatmap-legend-label">Banyak</span>
+                </div>
+                <div className="heatmap-stats">
+                  <span className="heatmap-stat">
+                    <Flame size={12} /> {completedTasks} selesai
+                  </span>
+                  <span className="heatmap-stat">
+                    <Activity size={12} /> {totalTasks} total
+                  </span>
+                </div>
               </div>
             </div>
+          )}
+        </div>
+      </section>
 
-            {/* Legend & Stats */}
-            <div className="heatmap-footer">
-              <div className="heatmap-legend">
-                <span className="heatmap-legend-label">Sedikit</span>
-                {[0, 1, 2, 3, 4].map((lvl) => (
-                  <span key={lvl} className={`heatmap-legend-cell heatmap-level-${lvl}`} />
-                ))}
-                <span className="heatmap-legend-label">Banyak</span>
-              </div>
-              <div className="heatmap-stats">
-                <span className="heatmap-stat">
-                  <Flame size={12} /> {completedTasks} selesai
-                </span>
-                <span className="heatmap-stat">
-                  <Activity size={12} /> {totalTasks} total
-                </span>
-              </div>
-            </div>
-          </div>
-        </section>
-      </div>
-
-      {/* 5. Two Columns: Fokus Hari Ini & Sebaran Kategori (Aksi langsung di pop-up) */}
+      {/* 5. Two Columns: Fokus Hari Ini & Klaster Kategori Berwarna */}
       <div className="dashboard-columns-grid">
         {/* Left Column: Fokus Segera / Prioritas Tinggi */}
         <section className="dashboard-panel-card">
@@ -601,7 +770,9 @@ export function DashboardView({
                   >
                     <strong>{t.title}</strong>
                     <div className="spotlight-meta">
-                      <span className="spotlight-cat">{t.category}</span>
+                      <span className={`spotlight-cat cat-badge-${t.category.toLowerCase()}`}>
+                        {t.category}
+                      </span>
                       {t.priority === "high" && (
                         <span className="priority-label">Tinggi</span>
                       )}
@@ -640,43 +811,71 @@ export function DashboardView({
           </button>
         </section>
 
-        {/* Right Column: Distribusi Kategori (Klik membuka Pop-up Aksi kategori tersebut) */}
+        {/* Right Column: Klaster Kategori & Pembeda Prioritas */}
         <section className="dashboard-panel-card">
           <div className="panel-card-heading">
             <span className="panel-badge">
               <Folder size={14} />
             </span>
             <div>
-              <h3>Beban Kerja Berdasarkan Kategori</h3>
-              <p>Klik kategori untuk membuka kumpulan aksi tugasnya</p>
+              <h3>Klaster Kategori & Prioritas</h3>
+              <p>Kelompok terpisah Work, Personal, Study dengan rincian prioritas</p>
             </div>
           </div>
 
-          <div className="category-distribution-list">
-            {categoryStats.map((cat, idx) => {
-              const pct =
-                totalTasks > 0
-                  ? Math.round((cat.total / totalTasks) * 100)
-                  : 0;
+          <div className="category-cluster-list">
+            {categoryClusterStats.map((cat) => {
+              const IconComp = cat.icon;
+              const pct = cat.total > 0 ? Math.round((cat.completed / cat.total) * 100) : 0;
               return (
                 <div
                   key={cat.name}
-                  className="category-dist-row"
+                  className={`category-cluster-card cat-theme-${cat.colorKey}`}
                   onClick={() => onOpenActionModal("category", cat.name)}
                   title={`Klik untuk buka pop-up aksi kategori ${cat.name}`}
                 >
-                  <div className="category-dist-info">
-                    <span className={`category-dist-dot dot-${idx}`} />
-                    <strong>{cat.name}</strong>
-                    <span className="category-dist-count">
-                      {cat.active} aktif / {cat.total} total
-                    </span>
+                  <div className="cluster-header">
+                    <div className="cluster-title-wrap">
+                      <span className={`cluster-icon-badge icon-${cat.colorKey}`}>
+                        <IconComp size={15} />
+                      </span>
+                      <div>
+                        <strong className="cluster-name">{cat.name}</strong>
+                        <span className="cluster-sub">{cat.label}</span>
+                      </div>
+                    </div>
+
+                    <div className="cluster-chips">
+                      {cat.today > 0 && (
+                        <span className="cluster-chip chip-today" title="Jatuh tempo hari ini">
+                          <Sun size={10} /> {cat.today} Hari ini
+                        </span>
+                      )}
+                      {cat.highPriority > 0 && (
+                        <span className="cluster-chip chip-high" title="Prioritas tinggi">
+                          <Flame size={10} /> {cat.highPriority} Mendesak
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <div className="category-dist-bar-track">
+
+                  <div className="cluster-stats-row">
+                    <span className="cluster-stat-val">
+                      <strong>{cat.active}</strong> aktif · <strong>{cat.completed}</strong> selesai
+                    </span>
+                    <span className="cluster-pct">{pct}% tuntas</span>
+                  </div>
+
+                  <div className="cluster-progress-track">
                     <div
-                      className={`category-dist-bar-fill dot-${idx}`}
-                      style={{ width: `${Math.max(8, pct)}%` }}
+                      className={`cluster-progress-fill fill-${cat.colorKey}`}
+                      style={{ width: `${Math.max(6, pct)}%` }}
                     />
+                  </div>
+
+                  <div className="cluster-footer-action">
+                    <span>Kelola tugas {cat.name}</span>
+                    <ArrowRight size={12} />
                   </div>
                 </div>
               );
@@ -684,7 +883,7 @@ export function DashboardView({
           </div>
 
           <div className="category-footnote">
-            Tip: Mengklik kategori akan membuka pop-up kartu aksi yang dapat dipindahkan atau diperkecil.
+            Tip: Setiap kartu memiliki pembeda warna & status prioritas. Klik untuk membuka modal aksi.
           </div>
         </section>
       </div>
