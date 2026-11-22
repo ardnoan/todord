@@ -60,9 +60,8 @@ export function DashboardView({
   const todayTasks = activeTasks.filter((t) => t.dueDate === todayStr);
   const highPriorityTasks = activeTasks.filter((t) => t.priority === "high");
 
-  // Category Quick Filter & Analytics Tab States
+  // Category Quick Filter State
   const [categoryFilter, setCategoryFilter] = useState<"all" | "Work" | "Personal" | "Study">("all");
-  const [analyticsTab, setAnalyticsTab] = useState<"calendar" | "heatmap">("calendar");
 
   // Filtered metrics based on active category filter
   const displayActiveTasks = useMemo(() => {
@@ -344,7 +343,7 @@ export function DashboardView({
         <div className="dashboard-metrics-grid">
           <div
             className="metric-card metric-interactive"
-            onClick={() => onOpenActionModal("today")}
+            onClick={() => onOpenActionModal("today", categoryFilter !== "all" ? categoryFilter : undefined)}
             title="Buka pop-up aksi Tugas Hari Ini"
           >
             <div className="metric-header">
@@ -379,7 +378,7 @@ export function DashboardView({
 
           <div
             className="metric-card metric-interactive"
-            onClick={() => onOpenActionModal("active")}
+            onClick={() => onOpenActionModal("active", categoryFilter !== "all" ? categoryFilter : undefined)}
             title="Buka pop-up aksi Semua Tugas Aktif"
           >
             <div className="metric-header">
@@ -414,7 +413,7 @@ export function DashboardView({
 
           <div
             className="metric-card metric-interactive"
-            onClick={() => onOpenActionModal("completed")}
+            onClick={() => onOpenActionModal("completed", categoryFilter !== "all" ? categoryFilter : undefined)}
             title="Buka pop-up aksi Tugas Selesai"
           >
             <div className="metric-header">
@@ -535,197 +534,188 @@ export function DashboardView({
         )}
       </section>
 
-      {/* 4. Kalender & Monitoring Analitik Terpadu (Sleek Compact di Desktop) */}
-      <section className="dashboard-panel-card dashboard-analytics-unified">
-        <div className="analytics-unified-header">
-          <div className="panel-card-heading-content">
-            <div className="panel-card-heading-row">
-              <div className="analytics-title-group">
-                <span className="panel-badge">
-                  {analyticsTab === "calendar" ? <Calendar size={14} /> : <Activity size={14} />}
+      {/* 4. Kalender Tugas & Monitoring Aktivitas (Dua Kolom Seimbang & Serasi) */}
+      <div className="analytics-balanced-grid">
+        {/* Kolom Kiri: Kalender Tugas Bulanan */}
+        <section className="dashboard-panel-card analytics-panel-card">
+          <div className="panel-card-heading">
+            <span className="panel-badge">
+              <Calendar size={15} />
+            </span>
+            <div className="panel-card-heading-content">
+              <div className="panel-card-heading-row">
+                <h3>Kalender Tugas</h3>
+                <span className="cal-today-sync-badge" title="Tugas aktif yang jatuh tempo hari ini">
+                  {todayTasks.length} tugas hari ini
                 </span>
-                <div>
-                  <div className="panel-card-heading-row">
-                    <h3>{analyticsTab === "calendar" ? "Kalender Tugas Bulanan" : "Peta Aktivitas & Monitoring"}</h3>
-                    {analyticsTab === "calendar" && (
-                      <span className="cal-today-sync-badge" title="Tugas aktif yang jatuh tempo hari ini">
-                        {todayTasks.length} tugas hari ini
+              </div>
+              <p>Tersinkronisasi otomatis dengan tenggat waktu</p>
+            </div>
+          </div>
+
+          <div className="cal-widget">
+            <div className="cal-nav">
+              <button type="button" className="cal-nav-btn" onClick={prevMonth} title="Bulan sebelumnya">
+                <ChevronLeft size={16} />
+              </button>
+              <span className="cal-month-label">{calMonthLabel}</span>
+              <button type="button" className="cal-nav-btn" onClick={nextMonth} title="Bulan berikutnya">
+                <ChevronRight size={16} />
+              </button>
+            </div>
+
+            <div className="cal-grid">
+              {["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"].map((d) => (
+                <div key={d} className="cal-day-header">{d}</div>
+              ))}
+              {calendarData.map((cell, i) =>
+                cell === null ? (
+                  <div key={`empty-${i}`} className="cal-day cal-day-empty" />
+                ) : (
+                  <div
+                    key={cell.dateKey}
+                    className={[
+                      "cal-day",
+                      cell.isToday ? "cal-day-today" : "",
+                      cell.total > 0 ? "cal-day-has-tasks" : "",
+                      cell.total > 0 && cell.completed === cell.total ? "cal-day-all-done" : "",
+                      hoveredDay === cell.dateKey ? "cal-day-hover" : "",
+                    ].join(" ")}
+                    onMouseEnter={() => setHoveredDay(cell.dateKey)}
+                    onMouseLeave={() => setHoveredDay(null)}
+                    onClick={() => {
+                      if (cell.total > 0) {
+                        onOpenActionModal(cell.isToday ? "today" : "active", categoryFilter !== "all" ? categoryFilter : undefined);
+                      }
+                    }}
+                    style={{ cursor: cell.total > 0 ? "pointer" : "default" }}
+                    title={
+                      cell.total > 0
+                        ? `${cell.day}: ${cell.total} tugas (${cell.completed} selesai) - Klik untuk buka aksi`
+                        : `${cell.day}`
+                    }
+                  >
+                    <span className="cal-day-num">{cell.day}</span>
+                    {cell.total > 0 && (
+                      <span className="cal-day-badge">
+                        {cell.completed === cell.total ? (
+                          <Check size={8} />
+                        ) : (
+                          cell.total
+                        )}
                       </span>
                     )}
                   </div>
-                  <p>
-                    {analyticsTab === "calendar"
-                      ? "Tersinkronisasi otomatis dengan tenggat tugas (klik tanggal untuk buka aksi)"
-                      : "Peta intensitas aktivitas penyelesaian tugas 16 minggu terakhir"}
-                  </p>
-                </div>
-              </div>
+                )
+              )}
+            </div>
 
-              {/* Segmented Tab Switcher */}
-              <div className="analytics-tab-switcher">
-                <button
-                  type="button"
-                  className={`analytics-tab-btn ${analyticsTab === "calendar" ? "active" : ""}`}
-                  onClick={() => setAnalyticsTab("calendar")}
-                  title="Lihat Kalender Tugas Bulanan"
-                >
-                  <Calendar size={13} />
-                  <span>Kalender Tugas</span>
-                </button>
-                <button
-                  type="button"
-                  className={`analytics-tab-btn ${analyticsTab === "heatmap" ? "active" : ""}`}
-                  onClick={() => setAnalyticsTab("heatmap")}
-                  title="Lihat Peta Aktivitas 16 Minggu"
-                >
-                  <Activity size={13} />
-                  <span>Aktivitas & Heatmap</span>
-                </button>
+            <div className="cal-footer">
+              <div className="cal-legend-item">
+                <span className="cal-legend-dot cal-legend-today" /> Hari ini
+              </div>
+              <div className="cal-legend-item">
+                <span className="cal-legend-dot cal-legend-tasks" /> Ada tugas
+              </div>
+              <div className="cal-legend-item">
+                <span className="cal-legend-dot cal-legend-done" /> Selesai
               </div>
             </div>
           </div>
-        </div>
+        </section>
 
-        {/* Tab Content Body */}
-        <div className="analytics-tab-body">
-          {analyticsTab === "calendar" ? (
-            <div className="cal-widget cal-widget-compact">
-              <div className="cal-nav">
-                <button type="button" className="cal-nav-btn" onClick={prevMonth} title="Bulan sebelumnya">
-                  <ChevronLeft size={16} />
-                </button>
-                <span className="cal-month-label">{calMonthLabel}</span>
-                <button type="button" className="cal-nav-btn" onClick={nextMonth} title="Bulan berikutnya">
-                  <ChevronRight size={16} />
-                </button>
+        {/* Kolom Kanan: Peta Aktivitas & Monitoring Produktivitas */}
+        <section className="dashboard-panel-card analytics-panel-card">
+          <div className="panel-card-heading">
+            <span className="panel-badge">
+              <Activity size={15} />
+            </span>
+            <div className="panel-card-heading-content">
+              <div className="panel-card-heading-row">
+                <h3>Aktivitas & Monitoring</h3>
+                <span className="heatmap-streak-badge" title="Jumlah tugas yang terselesaikan">
+                  <Flame size={11} /> {completedTasks} selesai
+                </span>
               </div>
+              <p>Peta intensitas produktivitas 16 minggu terakhir</p>
+            </div>
+          </div>
 
-              <div className="cal-grid">
-                {["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"].map((d) => (
-                  <div key={d} className="cal-day-header">{d}</div>
+          <div className="heatmap-widget">
+            {/* Quick KPI Strip */}
+            <div className="analytics-kpi-strip">
+              <div className="kpi-mini-card">
+                <span className="kpi-mini-num">{completedTasks}</span>
+                <span className="kpi-mini-label">Tuntas</span>
+              </div>
+              <div className="kpi-mini-card">
+                <span className="kpi-mini-num">{activeTasks.length}</span>
+                <span className="kpi-mini-label">Berjalan</span>
+              </div>
+              <div className="kpi-mini-card">
+                <span className="kpi-mini-num">{completionRate}%</span>
+                <span className="kpi-mini-label">Skor</span>
+              </div>
+            </div>
+
+            {/* Month labels row */}
+            <div
+              className="heatmap-month-labels"
+              style={{ gridTemplateColumns: `20px repeat(${heatmapData.WEEKS}, 1fr)` }}
+            >
+              <span />
+              {Array.from({ length: heatmapData.WEEKS }, (_, col) => {
+                const ml = heatmapData.monthLabels.find((m) => m.col === col);
+                return (
+                  <span key={col} className="heatmap-month-label">
+                    {ml ? ml.label : ""}
+                  </span>
+                );
+              })}
+            </div>
+
+            {/* Heatmap grid */}
+            <div className="heatmap-grid-wrap">
+              <div className="heatmap-day-labels">
+                {dayLabelsHeatmap.map((d, i) => (
+                  <span key={d} className="heatmap-day-label">
+                    {i % 2 === 1 ? d : ""}
+                  </span>
                 ))}
-                {calendarData.map((cell, i) =>
-                  cell === null ? (
-                    <div key={`empty-${i}`} className="cal-day cal-day-empty" />
-                  ) : (
-                    <div
-                      key={cell.dateKey}
-                      className={[
-                        "cal-day",
-                        cell.isToday ? "cal-day-today" : "",
-                        cell.total > 0 ? "cal-day-has-tasks" : "",
-                        cell.total > 0 && cell.completed === cell.total ? "cal-day-all-done" : "",
-                        hoveredDay === cell.dateKey ? "cal-day-hover" : "",
-                      ].join(" ")}
-                      onMouseEnter={() => setHoveredDay(cell.dateKey)}
-                      onMouseLeave={() => setHoveredDay(null)}
-                      onClick={() => {
-                        if (cell.total > 0) {
-                          onOpenActionModal(cell.isToday ? "today" : "active");
-                        }
-                      }}
-                      style={{ cursor: cell.total > 0 ? "pointer" : "default" }}
-                      title={
-                        cell.total > 0
-                          ? `${cell.day}: ${cell.total} tugas (${cell.completed} selesai) - Klik untuk buka aksi`
-                          : `${cell.day}`
-                      }
-                    >
-                      <span className="cal-day-num">{cell.day}</span>
-                      {cell.total > 0 && (
-                        <span className="cal-day-badge">
-                          {cell.completed === cell.total ? (
-                            <Check size={8} />
-                          ) : (
-                            cell.total
-                          )}
-                        </span>
-                      )}
-                    </div>
-                  )
-                )}
               </div>
 
-              <div className="cal-footer">
-                <div className="cal-legend-item">
-                  <span className="cal-legend-dot cal-legend-today" /> Hari ini
-                </div>
-                <div className="cal-legend-item">
-                  <span className="cal-legend-dot cal-legend-tasks" /> Ada tugas
-                </div>
-                <div className="cal-legend-item">
-                  <span className="cal-legend-dot cal-legend-done" /> Semua selesai
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="heatmap-widget heatmap-widget-compact">
-              {/* Month labels row */}
               <div
-                className="heatmap-month-labels"
-                style={{ gridTemplateColumns: `28px repeat(${heatmapData.WEEKS}, 1fr)` }}
+                className="heatmap-grid"
+                style={{
+                  gridTemplateColumns: `repeat(${heatmapData.WEEKS}, 1fr)`,
+                  gridTemplateRows: "repeat(7, 1fr)",
+                }}
               >
-                <span />
-                {Array.from({ length: heatmapData.WEEKS }, (_, col) => {
-                  const ml = heatmapData.monthLabels.find((m) => m.col === col);
-                  return (
-                    <span key={col} className="heatmap-month-label">
-                      {ml ? ml.label : ""}
-                    </span>
-                  );
-                })}
-              </div>
-
-              {/* Heatmap grid */}
-              <div className="heatmap-grid-wrap">
-                <div className="heatmap-day-labels">
-                  {dayLabelsHeatmap.map((d, i) => (
-                    <span key={d} className="heatmap-day-label">
-                      {i % 2 === 1 ? d : ""}
-                    </span>
-                  ))}
-                </div>
-
-                <div
-                  className="heatmap-grid"
-                  style={{
-                    gridTemplateColumns: `repeat(${heatmapData.WEEKS}, 1fr)`,
-                    gridTemplateRows: "repeat(7, 1fr)",
-                  }}
-                >
-                  {heatmapData.cells.map((cell) => (
-                    <div
-                      key={cell.dateKey}
-                      className={`heatmap-cell heatmap-level-${heatmapData.getLevel(cell.count)}${cell.isToday ? " heatmap-cell-today" : ""}`}
-                      style={{ gridColumn: cell.col + 1, gridRow: cell.row + 1 }}
-                      title={`${cell.dateKey}: ${cell.count} aktivitas`}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              {/* Legend & Stats */}
-              <div className="heatmap-footer">
-                <div className="heatmap-legend">
-                  <span className="heatmap-legend-label">Sedikit</span>
-                  {[0, 1, 2, 3, 4].map((lvl) => (
-                    <span key={lvl} className={`heatmap-legend-cell heatmap-level-${lvl}`} />
-                  ))}
-                  <span className="heatmap-legend-label">Banyak</span>
-                </div>
-                <div className="heatmap-stats">
-                  <span className="heatmap-stat">
-                    <Flame size={12} /> {completedTasks} selesai
-                  </span>
-                  <span className="heatmap-stat">
-                    <Activity size={12} /> {totalTasks} total
-                  </span>
-                </div>
+                {heatmapData.cells.map((cell) => (
+                  <div
+                    key={cell.dateKey}
+                    className={`heatmap-cell heatmap-level-${heatmapData.getLevel(cell.count)}${cell.isToday ? " heatmap-cell-today" : ""}`}
+                    style={{ gridColumn: cell.col + 1, gridRow: cell.row + 1 }}
+                    title={`${cell.dateKey}: ${cell.count} aktivitas`}
+                  />
+                ))}
               </div>
             </div>
-          )}
-        </div>
-      </section>
+
+            {/* Legend & Stats Footer */}
+            <div className="heatmap-footer">
+              <div className="heatmap-legend">
+                <span className="heatmap-legend-label">Sedikit</span>
+                {[0, 1, 2, 3, 4].map((lvl) => (
+                  <span key={lvl} className={`heatmap-legend-cell heatmap-level-${lvl}`} />
+                ))}
+                <span className="heatmap-legend-label">Banyak</span>
+              </div>
+              <span className="heatmap-footnote">112 hari terakhir</span>
+            </div>
+          </div>
+        </section>
+      </div>
 
       {/* 5. Two Columns: Fokus Hari Ini & Klaster Kategori Berwarna */}
       <div className="dashboard-columns-grid">

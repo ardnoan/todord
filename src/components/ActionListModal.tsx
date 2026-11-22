@@ -19,9 +19,10 @@ interface ActionListModalProps {
   subtitle: string;
   icon: React.ElementType;
   tasks: Task[];
+  defaultCategory?: string;
   onToggleTask: (task: Task) => Promise<void>;
   onOpenTaskDetail: (task: Task) => void;
-  onAddTask?: (title: string) => Promise<void>;
+  onAddTask?: (title: string, category: string) => Promise<void>;
   onClose: () => void;
 }
 
@@ -31,6 +32,7 @@ export function ActionListModal({
   subtitle,
   icon: Icon,
   tasks,
+  defaultCategory = "Work",
   onToggleTask,
   onOpenTaskDetail,
   onAddTask,
@@ -38,8 +40,15 @@ export function ActionListModal({
 }: ActionListModalProps) {
   const [isMinimized, setIsMinimized] = useState(false);
   const [quickTitle, setQuickTitle] = useState("");
+  const [taskCategory, setTaskCategory] = useState<string>(defaultCategory);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const dragControls = useDragControls();
+
+  useEffect(() => {
+    if (defaultCategory) {
+      setTaskCategory(defaultCategory);
+    }
+  }, [defaultCategory]);
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -57,7 +66,7 @@ export function ActionListModal({
     if (!clean || !onAddTask || isSubmitting) return;
     setIsSubmitting(true);
     try {
-      await onAddTask(clean);
+      await onAddTask(clean, taskCategory);
       setQuickTitle("");
     } finally {
       setIsSubmitting(false);
@@ -173,9 +182,19 @@ export function ActionListModal({
             {/* Quick Add Form inside modal */}
             {onAddTask && (
               <form onSubmit={handleAdd} className="action-quick-add-form">
+                <select
+                  value={taskCategory}
+                  onChange={(e) => setTaskCategory(e.target.value)}
+                  className="action-category-select"
+                  title="Pilih kategori tugas (Work / Personal / Study)"
+                >
+                  <option value="Work">💼 Work</option>
+                  <option value="Personal">👤 Personal</option>
+                  <option value="Study">📚 Study</option>
+                </select>
                 <input
                   type="text"
-                  placeholder="Tambah tugas baru ke sini..."
+                  placeholder={`Tambah tugas baru di ${taskCategory}...`}
                   value={quickTitle}
                   onChange={(e) => setQuickTitle(e.target.value)}
                   className="action-quick-input"

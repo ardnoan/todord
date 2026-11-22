@@ -867,20 +867,26 @@ function App() {
           isOpen={true}
           title={
             actionModal.type === "today"
-              ? "Tugas Hari Ini"
+              ? actionModal.categoryName
+                ? `Tugas Hari Ini (${actionModal.categoryName})`
+                : "Tugas Hari Ini"
               : actionModal.type === "active"
-              ? "Semua Tugas Aktif"
+              ? actionModal.categoryName
+                ? `Tugas Aktif (${actionModal.categoryName})`
+                : "Semua Tugas Aktif"
               : actionModal.type === "completed"
-              ? "Tugas Terselesaikan"
+              ? actionModal.categoryName
+                ? `Tugas Selesai (${actionModal.categoryName})`
+                : "Tugas Terselesaikan"
               : `Kategori: ${actionModal.categoryName}`
           }
           subtitle={
             actionModal.type === "today"
-              ? "Fokus selesaikan tugas dengan tenggat hari ini"
+              ? `Fokus selesaikan tugas ${actionModal.categoryName ? `(${actionModal.categoryName}) ` : ""}dengan tenggat hari ini`
               : actionModal.type === "active"
-              ? "Kumpulan seluruh tugas yang sedang berjalan"
+              ? `Kumpulan seluruh tugas yang sedang berjalan ${actionModal.categoryName ? `kategori ${actionModal.categoryName}` : ""}`
               : actionModal.type === "completed"
-              ? "Riwayat tugas yang telah berhasil kamu selesaikan"
+              ? `Riwayat tugas ${actionModal.categoryName ? `kategori ${actionModal.categoryName} ` : ""}yang telah berhasil kamu selesaikan`
               : `Semua tugas dalam daftar ${actionModal.categoryName}`
           }
           icon={
@@ -892,13 +898,27 @@ function App() {
               ? CheckCircle2
               : Folder
           }
+          defaultCategory={actionModal.categoryName || "Work"}
           tasks={
             actionModal.type === "today"
-              ? tasks.filter((t) => !t.completed && t.dueDate === today)
+              ? tasks.filter(
+                  (t) =>
+                    !t.completed &&
+                    t.dueDate === today &&
+                    (!actionModal.categoryName || t.category === actionModal.categoryName)
+                )
               : actionModal.type === "active"
-              ? tasks.filter((t) => !t.completed)
+              ? tasks.filter(
+                  (t) =>
+                    !t.completed &&
+                    (!actionModal.categoryName || t.category === actionModal.categoryName)
+                )
               : actionModal.type === "completed"
-              ? tasks.filter((t) => t.completed)
+              ? tasks.filter(
+                  (t) =>
+                    t.completed &&
+                    (!actionModal.categoryName || t.category === actionModal.categoryName)
+                )
               : tasks.filter(
                   (t) =>
                     !t.completed && t.category === actionModal.categoryName
@@ -908,12 +928,9 @@ function App() {
           onOpenTaskDetail={(task) => setDialogTask(task)}
           onAddTask={
             actionModal.type !== "completed"
-              ? async (title) => {
+              ? async (title, selectedCategory) => {
                   const dueDate = actionModal.type === "today" ? today : "";
-                  const category =
-                    actionModal.type === "category" && actionModal.categoryName
-                      ? actionModal.categoryName
-                      : "Personal";
+                  const category = selectedCategory || actionModal.categoryName || "Work";
                   await saveTask({
                     ...emptyDraft,
                     title,
