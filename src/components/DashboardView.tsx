@@ -63,6 +63,37 @@ export function DashboardView({
   // Category Quick Filter State
   const [categoryFilter, setCategoryFilter] = useState<"all" | "Work" | "Personal" | "Study">("all");
 
+  // Dynamic Progress calculations based on active category filter
+  const currentTotalTasks =
+    categoryFilter === "all"
+      ? totalTasks
+      : tasks.filter((t) => t.category === categoryFilter).length;
+
+  const currentCompletedTasks =
+    categoryFilter === "all"
+      ? completedTasks
+      : tasks.filter((t) => t.completed && t.category === categoryFilter).length;
+
+  const currentActiveTasks =
+    categoryFilter === "all"
+      ? activeTasks
+      : activeTasks.filter((t) => t.category === categoryFilter);
+
+  const currentCompletionRate =
+    currentTotalTasks > 0
+      ? Math.round((currentCompletedTasks / currentTotalTasks) * 100)
+      : 0;
+
+  // Breakdown of completion per category
+  const workCompleted = tasks.filter((t) => t.category === "Work" && t.completed).length;
+  const workTotal = tasks.filter((t) => t.category === "Work").length;
+
+  const personalCompleted = tasks.filter((t) => t.category === "Personal" && t.completed).length;
+  const personalTotal = tasks.filter((t) => t.category === "Personal").length;
+
+  const studyCompleted = tasks.filter((t) => t.category === "Study" && t.completed).length;
+  const studyTotal = tasks.filter((t) => t.category === "Study").length;
+
   // Filtered metrics based on active category filter
   const displayActiveTasks = useMemo(() => {
     if (categoryFilter === "all") return activeTasks;
@@ -273,26 +304,86 @@ export function DashboardView({
           </p>
         </div>
 
-        {/* Productivity Score Ring / Card */}
-        <div className="dashboard-progress-card">
+        {/* Productivity Score Ring / Card - Dynamic & Multi-Category Breakdown */}
+        <div className={`dashboard-progress-card ${categoryFilter !== "all" ? `progress-theme-${categoryFilter.toLowerCase()}` : ""}`}>
           <div className="progress-ring-circle">
             <TrendingUp size={22} className="progress-ring-icon" />
-            <span className="progress-ring-pct">{completionRate}%</span>
+            <span className="progress-ring-pct">{currentCompletionRate}%</span>
           </div>
           <div className="progress-card-info">
-            <strong>
-              {completedTasks} dari {totalTasks} tugas selesai
-            </strong>
+            <div className="progress-card-headline">
+              <strong>
+                {currentCompletedTasks} dari {currentTotalTasks} tugas selesai
+              </strong>
+              {categoryFilter !== "all" ? (
+                <span className={`progress-cat-badge badge-${categoryFilter.toLowerCase()}`}>
+                  {categoryFilter}
+                </span>
+              ) : (
+                <span className="progress-all-badge">Semua</span>
+              )}
+            </div>
+
             <small>
-              {completionRate === 100 && totalTasks > 0
-                ? "Luar biasa! Semua tugas terselesaikan."
-                : `${activeTasks.length} tugas masih berjalan saat ini.`}
+              {currentCompletionRate === 100 && currentTotalTasks > 0
+                ? `Luar biasa! Seluruh tugas ${categoryFilter === "all" ? "" : categoryFilter} terselesaikan.`
+                : `${currentActiveTasks.length} tugas ${categoryFilter === "all" ? "" : categoryFilter} masih berjalan.`}
             </small>
-            <div className="progress-bar-track">
-              <div
-                className="progress-bar-fill"
-                style={{ width: `${completionRate}%` }}
-              />
+
+            {/* Dynamic Multi-Category Segmented Progress Bar */}
+            {categoryFilter === "all" ? (
+              <div className="progress-bar-track progress-bar-multi">
+                <div
+                  className="progress-segment seg-work"
+                  style={{ width: `${totalTasks > 0 ? (workCompleted / totalTasks) * 100 : 0}%` }}
+                  title={`Work: ${workCompleted}/${workTotal} selesai`}
+                />
+                <div
+                  className="progress-segment seg-personal"
+                  style={{ width: `${totalTasks > 0 ? (personalCompleted / totalTasks) * 100 : 0}%` }}
+                  title={`Personal: ${personalCompleted}/${personalTotal} selesai`}
+                />
+                <div
+                  className="progress-segment seg-study"
+                  style={{ width: `${totalTasks > 0 ? (studyCompleted / totalTasks) * 100 : 0}%` }}
+                  title={`Study: ${studyCompleted}/${studyTotal} selesai`}
+                />
+              </div>
+            ) : (
+              <div className="progress-bar-track">
+                <div
+                  className={`progress-bar-fill fill-${categoryFilter.toLowerCase()}`}
+                  style={{ width: `${currentCompletionRate}%` }}
+                />
+              </div>
+            )}
+
+            {/* Category Breakdown Progress Strip */}
+            <div className="progress-category-pills">
+              <span
+                className={`prog-pill prog-work ${categoryFilter === "Work" ? "active" : ""}`}
+                onClick={() => setCategoryFilter(categoryFilter === "Work" ? "all" : "Work")}
+                title="Klik untuk filter kategori Work"
+              >
+                <span className="prog-pill-dot dot-work" />
+                Work: <strong>{workCompleted}/{workTotal}</strong>
+              </span>
+              <span
+                className={`prog-pill prog-personal ${categoryFilter === "Personal" ? "active" : ""}`}
+                onClick={() => setCategoryFilter(categoryFilter === "Personal" ? "all" : "Personal")}
+                title="Klik untuk filter kategori Personal"
+              >
+                <span className="prog-pill-dot dot-personal" />
+                Personal: <strong>{personalCompleted}/{personalTotal}</strong>
+              </span>
+              <span
+                className={`prog-pill prog-study ${categoryFilter === "Study" ? "active" : ""}`}
+                onClick={() => setCategoryFilter(categoryFilter === "Study" ? "all" : "Study")}
+                title="Klik untuk filter kategori Study"
+              >
+                <span className="prog-pill-dot dot-study" />
+                Study: <strong>{studyCompleted}/{studyTotal}</strong>
+              </span>
             </div>
           </div>
         </div>

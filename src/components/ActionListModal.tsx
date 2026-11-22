@@ -188,9 +188,9 @@ export function ActionListModal({
                   className="action-category-select"
                   title="Pilih kategori tugas (Work / Personal / Study)"
                 >
-                  <option value="Work">💼 Work</option>
-                  <option value="Personal">👤 Personal</option>
-                  <option value="Study">📚 Study</option>
+                  <option value="Work">Work</option>
+                  <option value="Personal">Personal</option>
+                  <option value="Study">Study</option>
                 </select>
                 <input
                   type="text"

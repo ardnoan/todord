@@ -770,7 +770,7 @@ function App() {
                               <Clock3 size={12} />{formatDueDate(task.dueDate)}
                             </span>
                             <span className={`task-category cat-${categories.indexOf(task.category) >= 0 ? categories.indexOf(task.category) : 0}`}>
-                              <i />{task.category}
+                              <span className="task-cat-dot" />{task.category}
                             </span>
                             {task.priority === "high" && <span className="priority-label">Prioritas tinggi</span>}
                           </span>

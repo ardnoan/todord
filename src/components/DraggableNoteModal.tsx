@@ -162,7 +162,7 @@ export function DraggableNoteModal({
       pipWindow.document.body.style.fontFamily = "DM Sans, sans-serif";
       pipWindow.document.body.innerHTML = `
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid ${currentColorStyle.border}; padding-bottom:6px;">
-          <strong style="font-size:10px; text-transform:uppercase; letter-spacing:0.8px;">📌 Catatan Desktop Always-On-Top</strong>
+          <strong style="font-size:10px; text-transform:uppercase; letter-spacing:0.8px;">Catatan Desktop Always-On-Top</strong>
         </div>
         <h3 style="margin:0 0 8px; font-size:16px; font-family:sans-serif;">${title}</h3>
         <p style="margin:0; font-size:12px; line-height:1.5; white-space:pre-wrap;">${content || "(Tanpa catatan)"}</p>
