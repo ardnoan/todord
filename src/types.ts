@@ -6,6 +6,19 @@ export type Subtask = {
   completed: boolean;
 };
 
+export type NoteColor = "yellow" | "sage" | "blue" | "peach" | "lavender";
+
+export type StickyNote = {
+  id: string;
+  title: string;
+  content: string;
+  color: NoteColor;
+  pinned?: boolean;
+  createdAt: number;
+};
+
+export type ActionModalType = "today" | "active" | "completed" | "category" | null;
+
 export type Task = {
   id: string;
   title: string;
@@ -16,9 +29,25 @@ export type Task = {
   completed: boolean;
   subtasks: Subtask[];
   createdAt: number;
+  color?: NoteColor;
+  pinned?: boolean;
 };
 
 export type TaskDraft = Omit<Task, "id" | "createdAt">;
+
+export type View = "dashboard" | "today" | "upcoming" | "inbox" | "completed";
+
+export type ThemeId = "sage" | "dark" | "warm" | "ocean" | "lavender";
+
+export type LayoutMode = "list" | "grid" | "compact";
+
+export type ThemePreferences = {
+  theme: ThemeId;
+  layout: LayoutMode;
+  showStats: boolean;
+  showWeekStrip: boolean;
+  showMotto: boolean;
+};
 
 export type Json =
   | string

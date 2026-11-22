@@ -1,41 +1,39 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { User } from "@supabase/supabase-js";
+import { motion, AnimatePresence } from "framer-motion";
 import {
-  ArrowDownWideNarrow,
-  ArrowLeft,
   ArrowRight,
   Check,
   CheckCheck,
   CheckCircle2,
-  ChevronDown,
   Clock3,
   Cloud,
   Folder,
-  Inbox,
-  ListTodo,
+  Layers,
   LockKeyhole,
   LogOut,
   Plus,
   Search,
-  Sparkles,
+  SlidersHorizontal,
   Sun,
   Trash2,
   X,
 } from "lucide-react";
 import { isSupabaseConfigured, supabase } from "./supabase";
-import type { Database, Json, Priority, Subtask, Task, TaskDraft } from "./types";
+import type { Database, Json, Priority, StickyNote as StickyNoteType, Subtask, Task, TaskDraft } from "./types";
+import { useThemePreferences } from "./hooks/useThemePreferences";
+import { useStickyNotes } from "./hooks/useStickyNotes";
+import { ThemeDashboardMenu } from "./components/ThemeDashboardMenu";
+import { DraggableNoteModal } from "./components/DraggableNoteModal";
+import { ActionListModal } from "./components/ActionListModal";
+import { LogoutConfirmModal } from "./components/LogoutConfirmModal";
+import { EmailVerificationView } from "./components/EmailVerificationView";
+import { DashboardView } from "./components/DashboardView";
 
-type View = "today" | "upcoming" | "inbox" | "completed";
 type CloudState = "connecting" | "synced" | "syncing" | "error";
 type TaskRow = Database["public"]["Tables"]["tasks"]["Row"];
 
 const categories = ["Personal", "Work", "Study"];
-const views: { id: View; label: string; icon: typeof Sun }[] = [
-  { id: "today", label: "Hari ini", icon: Sun },
-  { id: "upcoming", label: "Mendatang", icon: Clock3 },
-  { id: "inbox", label: "Inbox", icon: Inbox },
-  { id: "completed", label: "Selesai", icon: CheckCircle2 },
-];
 
 const emptyDraft: TaskDraft = {
   title: "",
@@ -52,12 +50,6 @@ function localDateString(date: Date) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
-}
-
-function shiftDate(value: string, days: number) {
-  const date = new Date(`${value}T00:00:00`);
-  date.setDate(date.getDate() + days);
-  return localDateString(date);
 }
 
 function parseSubtasks(value: Json): Subtask[] {
@@ -128,6 +120,7 @@ function AuthScreen() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [verificationEmail, setVerificationEmail] = useState<string | null>(null);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -145,9 +138,10 @@ function AuthScreen() {
           password,
         });
         if (signUpError) throw signUpError;
+        // If confirmation is required, show enhanced verification screen
         if (!data.session) {
-          setIsRegister(false);
-          setNotice("Akun dibuat. Periksa email untuk konfirmasi sebelum masuk.");
+          setVerificationEmail(email.trim());
+          return;
         }
       } else {
         const { error: signInError } = await supabase.auth.signInWithPassword({
@@ -185,29 +179,56 @@ function AuthScreen() {
         <span className="auth-copyright">Dirancang untuk hari yang lebih ringan.</span>
       </div>
       <section className="auth-form-wrap">
-        <form className="auth-form" onSubmit={submit}>
-          <div className="auth-mobile-brand"><span className="brand-mark"><CheckCheck size={20} /></span> ruang.</div>
-          <span className="eyebrow">{isRegister ? "MULAI DENGAN LANGKAH KECIL" : "SENANG BERTEMU LAGI"}</span>
-          <h2>{isRegister ? "Buat akunmu" : "Selamat datang kembali"}</h2>
-          <p className="auth-description">{isRegister ? "Semua rencanamu tersimpan aman dan tersinkron." : "Masuk untuk melanjutkan rencanamu."}</p>
-          {error && <div className="error-banner" role="alert">{error}</div>}
-          {notice && <div className="success-banner" role="status">{notice}</div>}
-          <label htmlFor="email">Email</label>
-          <input id="email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="nama@email.com" required />
-          <label htmlFor="password">Kata sandi</label>
-          <input id="password" type="password" autoComplete={isRegister ? "new-password" : "current-password"} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Minimal 6 karakter" minLength={6} required />
-          <button className="button-primary auth-submit" type="submit" disabled={busy}>
-            {busy ? "Memproses..." : isRegister ? "Buat akun" : "Masuk"}
-            {!busy && <ArrowRight size={17} />}
-          </button>
-          <p className="auth-toggle">
-            {isRegister ? "Sudah punya akun?" : "Belum punya akun?"}{" "}
-            <button type="button" onClick={() => { setIsRegister(!isRegister); setError(""); }}>
-              {isRegister ? "Masuk" : "Daftar gratis"}
-            </button>
-          </p>
-          <div className="auth-security"><LockKeyhole size={14} /> Data tugas tersimpan privat di akunmu.</div>
-        </form>
+        <AnimatePresence mode="wait">
+          {verificationEmail ? (
+            <EmailVerificationView
+              key="verify-email"
+              email={verificationEmail}
+              onBackToLogin={() => {
+                setVerificationEmail(null);
+                setIsRegister(false);
+                setError("");
+              }}
+              onChangeEmail={() => {
+                setVerificationEmail(null);
+                setIsRegister(true);
+                setError("");
+              }}
+            />
+          ) : (
+            <motion.form
+              key="auth-form"
+              className="auth-form"
+              onSubmit={submit}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.2 }}
+            >
+              <div className="auth-mobile-brand"><span className="brand-mark"><CheckCheck size={20} /></span> ruang.</div>
+              <span className="eyebrow">{isRegister ? "MULAI DENGAN LANGKAH KECIL" : "SENANG BERTEMU LAGI"}</span>
+              <h2>{isRegister ? "Buat akunmu" : "Selamat datang kembali"}</h2>
+              <p className="auth-description">{isRegister ? "Semua rencanamu tersimpan aman dan tersinkron." : "Masuk untuk melanjutkan rencanamu."}</p>
+              {error && <div className="error-banner" role="alert">{error}</div>}
+              {notice && <div className="success-banner" role="status">{notice}</div>}
+              <label htmlFor="email">Email</label>
+              <input id="email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="nama@email.com" required />
+              <label htmlFor="password">Kata sandi</label>
+              <input id="password" type="password" autoComplete={isRegister ? "new-password" : "current-password"} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Minimal 6 karakter" minLength={6} required />
+              <button className="button-primary auth-submit" type="submit" disabled={busy}>
+                {busy ? "Memproses..." : isRegister ? "Buat akun" : "Masuk"}
+                {!busy && <ArrowRight size={17} />}
+              </button>
+              <p className="auth-toggle">
+                {isRegister ? "Sudah punya akun?" : "Belum punya akun?"}{" "}
+                <button type="button" onClick={() => { setIsRegister(!isRegister); setError(""); }}>
+                  {isRegister ? "Masuk" : "Daftar gratis"}
+                </button>
+              </p>
+              <div className="auth-security"><LockKeyhole size={14} /> Data tugas tersimpan privat di akunmu.</div>
+            </motion.form>
+          )}
+        </AnimatePresence>
       </section>
     </main>
   );
@@ -232,6 +253,7 @@ function TaskDialog({
     priority: task.priority,
     completed: task.completed,
     subtasks: task.subtasks,
+    color: task.color,
   } : emptyDraft);
   const [subtaskTitle, setSubtaskTitle] = useState("");
   const [busy, setBusy] = useState(false);
@@ -277,7 +299,14 @@ function TaskDialog({
 
   return (
     <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <form className="task-modal" onSubmit={submit}>
+      <motion.form
+        className="task-modal"
+        onSubmit={submit}
+        initial={{ opacity: 0, scale: 0.95, y: 15 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 10 }}
+        transition={{ type: "spring", stiffness: 420, damping: 30 }}
+      >
         <div className="modal-heading">
           <div><span className="eyebrow">{task ? "DETAIL TUGAS" : "TUGAS BARU"}</span><h2>{task ? "Atur detailnya." : "Apa yang ingin kamu selesaikan?"}</h2></div>
           <button className="icon-button" type="button" aria-label="Tutup" onClick={onClose}><X size={19} /></button>
@@ -307,7 +336,7 @@ function TaskDialog({
           <div className="subtask-add"><input value={subtaskTitle} onChange={(event) => setSubtaskTitle(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addSubtask(); } }} placeholder="Tambah langkah..." /><button type="button" onClick={addSubtask} aria-label="Tambah langkah"><Plus size={16} /></button></div>
         </div>
         <div className="modal-actions">{task && <button type="button" className="button-delete" onClick={deleteTask} disabled={deleting}><Trash2 size={14} />{deleting ? "Menghapus..." : "Hapus"}</button>}<button type="button" className="button-quiet" onClick={onClose}>Batal</button><button type="submit" className="button-primary" disabled={busy || deleting}>{busy ? "Menyimpan..." : task ? "Simpan perubahan" : "Buat tugas"} <ArrowRight size={16} /></button></div>
-      </form>
+      </motion.form>
     </div>
   );
 }
@@ -316,18 +345,43 @@ function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [tasksLoading, setTasksLoading] = useState(false);
   const [cloudState, setCloudState] = useState<CloudState>("connecting");
   const [syncError, setSyncError] = useState("");
-  const [view, setView] = useState<View>("today");
-  const [selectedDate, setSelectedDate] = useState(localDateString(new Date()));
-  const [categoryFilter, setCategoryFilter] = useState("");
   const [search, setSearch] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [dialogTask, setDialogTask] = useState<Task | null | undefined>(undefined);
-  const [quickTitle, setQuickTitle] = useState("");
-  const [sortByPriority, setSortByPriority] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Theme Preferences & Menu
+  const {
+    preferences,
+    setTheme,
+    setLayout,
+    toggleStats,
+    toggleWeekStrip,
+    toggleMotto,
+    resetPreferences,
+  } = useThemePreferences();
+  const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
+
+  // Pure Sticky Notes (Separated from Task Progress)
+  const {
+    notes: stickyNotes,
+    addNote,
+    updateNote,
+    deleteNote,
+  } = useStickyNotes();
+  const [activeStickyNote, setActiveStickyNote] = useState<StickyNoteType | null>(null);
+
+  // In-Dashboard Action Pop-up Modal (Draggable & Minimizable)
+  const [actionModal, setActionModal] = useState<{
+    type: "today" | "active" | "completed" | "category" | null;
+    categoryName?: string;
+  }>({ type: null });
+
+  // Logout Confirmation Modal
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   useEffect(() => {
     if (!supabase) return;
@@ -358,7 +412,6 @@ function App() {
     const currentUser = user;
     const client = supabase;
     let active = true;
-    setTasksLoading(true);
     setCloudState("connecting");
     setSyncError("");
     async function loadTasks() {
@@ -369,13 +422,11 @@ function App() {
         .order("created_at", { ascending: false });
       if (!active) return;
       if (error) {
-        setTasksLoading(false);
         setCloudState("error");
         setSyncError("Tidak dapat memuat tugas. Periksa koneksi atau kebijakan RLS Supabase.");
         return;
       }
       setTasks(data.map(parseTask));
-      setTasksLoading(false);
       setSyncError("");
       setCloudState("synced");
     }
@@ -408,52 +459,17 @@ function App() {
   }, [user]);
 
   const today = localDateString(new Date());
-  const todayCount = tasks.filter((task) => !task.completed && task.dueDate === today).length;
-  const completedCount = tasks.filter((task) => task.completed).length;
-  const selectedDateCount = tasks.filter((task) => !task.completed && task.dueDate === selectedDate).length;
-  const weekDays = useMemo(() => {
-    const start = new Date(`${selectedDate}T00:00:00`);
-    const day = start.getDay();
-    start.setDate(start.getDate() - ((day + 6) % 7));
-    return Array.from({ length: 7 }, (_, index) => {
-      const date = new Date(start);
-      date.setDate(start.getDate() + index);
-      return date;
-    });
-  }, [selectedDate]);
 
   const filteredTasks = useMemo(() => {
-    let result = tasks.filter((task) => {
-      if (view === "completed") return task.completed;
-      if (task.completed) return false;
-      if (categoryFilter && task.category !== categoryFilter) return false;
-      if (view === "today") return task.dueDate === selectedDate;
-      if (view === "upcoming") return task.dueDate >= today;
-      return true;
-    });
+    let result = tasks;
     const normalizedSearch = search.trim().toLocaleLowerCase("id");
     if (normalizedSearch) {
       result = result.filter((task) =>
         `${task.title} ${task.notes} ${task.category}`.toLocaleLowerCase("id").includes(normalizedSearch),
       );
     }
-    if (sortByPriority) {
-      const score: Record<Priority, number> = { high: 0, medium: 1, low: 2 };
-      result = [...result].sort((a, b) => score[a.priority] - score[b.priority]);
-    }
     return result;
-  }, [tasks, view, selectedDate, today, categoryFilter, search, sortByPriority]);
-
-  const title = view === "today"
-    ? selectedDate === today ? "Hari ini, milikmu." : new Intl.DateTimeFormat("id-ID", { weekday: "long", day: "numeric", month: "long" }).format(new Date(`${selectedDate}T00:00:00`))
-    : view === "upcoming" ? "Pelan-pelan, ke depan."
-      : view === "inbox" ? "Semua ada tempatnya."
-        : "Lihat yang sudah selesai.";
-  const subtitle = view === "today"
-    ? selectedDateCount ? `Ada ${selectedDateCount} hal yang menunggu perhatianmu.` : "Ruang yang cukup untuk memulai sesuatu."
-    : view === "upcoming" ? "Rencana mendatang, tersusun dengan tenang."
-      : view === "inbox" ? "Keluarkan dari kepala, simpan di sini."
-        : "Setiap langkah kecil tetap berarti.";
+  }, [tasks, search]);
 
   async function saveTask(draft: TaskDraft, task?: Task) {
     if (!supabase || !user) throw new Error("Akun atau database belum siap.");
@@ -479,12 +495,15 @@ function App() {
         if (error) throw error;
         if (!data) throw new Error("Tugas tidak ditemukan atau akses ditolak.");
       } else {
-        const { error } = await supabase
+        const { data, error } = await supabase
           .from("tasks")
           .insert({ ...payload, user_id: user.id })
-          .select("id")
+          .select()
           .single();
         if (error) throw error;
+        if (data) {
+          setTasks((prev) => [parseTask(data), ...prev]);
+        }
       }
     } catch (error) {
       setCloudState("error");
@@ -497,9 +516,13 @@ function App() {
     if (!supabase || !user) return;
     setCloudState("syncing");
     try {
+      const nextCompleted = !task.completed;
+      // Optimistic update
+      setTasks((prev) => prev.map((t) => t.id === task.id ? { ...t, completed: nextCompleted } : t));
+
       const { data, error } = await supabase
         .from("tasks")
-        .update({ completed: !task.completed })
+        .update({ completed: nextCompleted })
         .eq("id", task.id)
         .eq("user_id", user.id)
         .select("id")
@@ -509,27 +532,6 @@ function App() {
     } catch {
       setCloudState("error");
       setSyncError("Perubahan belum tersimpan. Coba lagi saat koneksi pulih.");
-    }
-  }
-
-  async function toggleSubtask(task: Task, subtask: Subtask) {
-    if (!supabase || !user) return;
-    setCloudState("syncing");
-    try {
-      const { data, error } = await supabase
-        .from("tasks")
-        .update({
-        subtasks: task.subtasks.map((item) => item.id === subtask.id ? { ...item, completed: !item.completed } : item),
-        })
-        .eq("id", task.id)
-        .eq("user_id", user.id)
-        .select("id")
-        .maybeSingle();
-      if (error) throw error;
-      if (!data) throw new Error("Tugas tidak ditemukan atau akses ditolak.");
-    } catch {
-      setCloudState("error");
-      setSyncError("Perubahan langkah belum tersimpan. Coba lagi.");
     }
   }
 
@@ -546,6 +548,7 @@ function App() {
         .maybeSingle();
       if (error) throw error;
       if (!data) throw new Error("Tugas tidak ditemukan atau akses ditolak.");
+      setTasks((prev) => prev.filter((t) => t.id !== task.id));
     } catch (error) {
       setCloudState("error");
       setSyncError("Tugas belum terhapus. Periksa koneksi atau kebijakan RLS Supabase.");
@@ -553,32 +556,19 @@ function App() {
     }
   }
 
-  async function logOut() {
+  async function handleConfirmLogout() {
     if (!supabase) return;
-    const { error } = await supabase.auth.signOut();
-    if (error) {
-      setCloudState("error");
-      setSyncError("Tidak dapat keluar dari akun. Coba lagi.");
-    }
-  }
-
-  async function addQuickTask(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const title = quickTitle.trim();
-    if (!title) return;
-    const dateInTitle = title.match(/\b(?:hari ini|besok)\b/i)?.[0].toLocaleLowerCase("id");
-    const dueDate = dateInTitle === "hari ini"
-      ? today
-      : dateInTitle === "besok"
-        ? localDateString(new Date(Date.now() + 86400000))
-        : "";
-    const cleanTitle = title.replace(/\b(?:hari ini|besok)\b/i, "").trim();
+    setIsLoggingOut(true);
     try {
-      await saveTask({ ...emptyDraft, title: cleanTitle || title, dueDate });
-      setQuickTitle("");
-    } catch {
-      setCloudState("error");
-      setSyncError("Tugas belum tersimpan. Periksa koneksi lalu coba lagi.");
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        setCloudState("error");
+        setSyncError("Tidak dapat keluar dari akun. Coba lagi.");
+      } else {
+        setShowLogoutConfirm(false);
+      }
+    } finally {
+      setIsLoggingOut(false);
     }
   }
 
@@ -587,105 +577,377 @@ function App() {
   if (!user) return <AuthScreen />;
 
   const greetingName = user.email?.split("@")[0] ?? "Kamu";
-  const selectedLabel = views.find((item) => item.id === view)?.label ?? "Tugas";
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand"><span className="brand-mark"><CheckCheck size={19} /></span><span>ruang<span className="brand-period">.</span></span></div>
-        <button className="profile-chip" type="button" onClick={() => { void logOut(); }}>
-          <span className="avatar">{greetingName.charAt(0).toUpperCase()}</span>
-          <span className="profile-copy"><strong>{greetingName}</strong><small>Ruang pribadimu</small></span>
-          <LogOut size={15} className="profile-logout" />
-        </button>
-        <div className="sidebar-section">
-          <span className="sidebar-label">RUANG KERJA</span>
-          <nav className="nav-list" aria-label="Navigasi tugas">
-            {views.map(({ id, label, icon: Icon }) => (
-              <button key={id} type="button" className={`nav-item ${view === id && !categoryFilter ? "active" : ""}`} onClick={() => { setView(id); setCategoryFilter(""); }}>
-                <Icon size={17} strokeWidth={1.8} /><span>{label}</span>
-                {id === "today" && todayCount > 0 && <span className="nav-count">{todayCount}</span>}
-                {id === "completed" && completedCount > 0 && <span className="nav-count">{completedCount}</span>}
-              </button>
-            ))}
-          </nav>
-        </div>
-        <div className="sidebar-section categories-section">
-          <div className="sidebar-label-row"><span className="sidebar-label">DAFTAR</span></div>
-          {categories.map((category, index) => (
-            <button type="button" key={category} className={`category-item ${categoryFilter === category ? "active" : ""}`} onClick={() => { setCategoryFilter(categoryFilter === category ? "" : category); setView("inbox"); }}>
-              <span className={`category-dot dot-${index}`} /><span>{category}</span><span className="category-count">{tasks.filter((task) => task.category === category && !task.completed).length}</span>
-            </button>
-          ))}
-        </div>
-        <div className="sidebar-bottom">
-          <div className={`sync-status sync-${cloudState}`}><span className={`sync-dot ${cloudState}`} /><Cloud size={14} /><span>{cloudState === "synced" ? "Tersinkron ke cloud" : cloudState === "syncing" ? "Menyinkronkan..." : cloudState === "error" ? "Sync bermasalah" : "Menghubungkan..."}</span></div>
-          <div className="sidebar-motto">Beri ruang untuk<br /><em>hal yang penting.</em></div>
-        </div>
-      </aside>
-
+      {/* Main Panel - Full Width Dashboard Focus */}
       <main className="main-panel">
         <header className="topbar">
-          <div className="breadcrumb"><span>Ruang kerja</span><span className="breadcrumb-slash">/</span><strong>{categoryFilter || selectedLabel}</strong></div>
+          <div className="topbar-left">
+            <div className="brand">
+              <span className="brand-mark">
+                <CheckCheck size={19} />
+              </span>
+              <span>
+                ruang<span className="brand-period">.</span>
+              </span>
+            </div>
+            <div
+              className={`topbar-sync-status sync-${cloudState}`}
+              title={
+                cloudState === "synced"
+                  ? "Tersinkron ke cloud Supabase"
+                  : cloudState === "syncing"
+                  ? "Menyinkronkan data..."
+                  : cloudState === "error"
+                  ? "Sync bermasalah"
+                  : "Menghubungkan..."
+              }
+            >
+              <span className={`sync-dot ${cloudState}`} />
+              <Cloud size={13} />
+              <span className="sync-text">
+                {cloudState === "synced"
+                  ? "Tersinkron"
+                  : cloudState === "syncing"
+                  ? "Menyinkronkan..."
+                  : cloudState === "error"
+                  ? "Sync error"
+                  : "Menghubungkan"}
+              </span>
+            </div>
+          </div>
+
           <div className="topbar-actions">
-            <label className={`search-box ${searchOpen ? "mobile-open" : ""}`}><Search size={16} /><input ref={searchInputRef} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari tugas..." /><kbd>⌘ K</kbd>{searchOpen && <button type="button" className="search-close" onClick={() => { setSearchOpen(false); setSearch(""); }} aria-label="Tutup pencarian"><X size={15} /></button>}</label>
-            <button type="button" className="mobile-search-trigger" aria-label="Cari tugas" onClick={() => { setSearchOpen(true); setTimeout(() => searchInputRef.current?.focus(), 0); }}><Search size={17} /></button>
-            <span className="date-stamp">{new Intl.DateTimeFormat("id-ID", { weekday: "short", day: "numeric", month: "short" }).format(new Date())}</span>
+            {/* Dashboard Menu Trigger (Theme & Layout) */}
+            <button
+              type="button"
+              className={`theme-menu-trigger ${isThemeMenuOpen ? "active" : ""}`}
+              onClick={() => setIsThemeMenuOpen(true)}
+              title="Atur tema warna, tata letak & widget"
+              aria-label="Atur tampilan dan tema"
+            >
+              <SlidersHorizontal size={14} />
+              <span>Tampilan</span>
+            </button>
+
+            {/* Quick Search */}
+            <label className={`search-box ${searchOpen ? "mobile-open" : ""}`}>
+              <Search size={16} />
+              <input
+                ref={searchInputRef}
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Cari tugas di ruang..."
+              />
+              <kbd>⌘ K</kbd>
+              {searchOpen && (
+                <button
+                  type="button"
+                  className="search-close"
+                  onClick={() => {
+                    setSearchOpen(false);
+                    setSearch("");
+                  }}
+                  aria-label="Tutup pencarian"
+                >
+                  <X size={15} />
+                </button>
+              )}
+            </label>
+            <button
+              type="button"
+              className="mobile-search-trigger"
+              aria-label="Cari tugas"
+              onClick={() => {
+                setSearchOpen(true);
+                setTimeout(() => searchInputRef.current?.focus(), 0);
+              }}
+            >
+              <Search size={17} />
+            </button>
+
+            <span className="date-stamp">
+              {new Intl.DateTimeFormat("id-ID", {
+                weekday: "short",
+                day: "numeric",
+                month: "short",
+              }).format(new Date())}
+            </span>
+
+            <div className="header-divider" />
+
+            {/* User Profile & Logout Handled in Header */}
+            <div className="header-profile-wrap">
+              <div
+                className="header-profile-chip"
+                title={`Akun: ${user.email}`}
+              >
+                <span className="header-avatar">
+                  {greetingName.charAt(0).toUpperCase()}
+                </span>
+                <span className="header-user-name">{greetingName}</span>
+              </div>
+              <button
+                type="button"
+                className="header-logout-btn"
+                onClick={() => setShowLogoutConfirm(true)}
+                title="Keluar akun"
+                aria-label="Keluar akun"
+              >
+                <LogOut size={15} />
+                <span className="logout-label">Keluar</span>
+              </button>
+            </div>
           </div>
         </header>
 
         <div className="content-scroll">
-          {syncError && <div className="sync-error" role="alert"><Cloud size={16} />{syncError}<button type="button" aria-label="Tutup pesan" onClick={() => setSyncError("")}><X size={15} /></button></div>}
-          <section className="welcome-row">
-            <div><span className="eyebrow">{new Intl.DateTimeFormat("id-ID", { weekday: "long", day: "numeric", month: "long" }).format(new Date()).toUpperCase()}</span><h1>{title}</h1><p>{subtitle}</p></div>
-            <div className="welcome-illustration" aria-hidden="true"><div className="sun-disc" /><span className="orbit orbit-one" /><span className="orbit orbit-two" /><span className="sparkle sparkle-one">✳</span><span className="sparkle sparkle-two">✦</span></div>
-          </section>
-
-          <section className="stats-row" aria-label="Ringkasan progres">
-            <div className="stat-card stat-focus"><span className="stat-icon"><Sparkles size={16} /></span><span className="stat-label">FOKUS HARI INI</span><strong>{todayCount}<small> tugas</small></strong><div className="stat-note">{todayCount ? "Satu langkah pada satu waktu" : "Hari ini masih terbuka"}</div></div>
-            <div className="stat-card"><span className="stat-icon stat-icon-green"><CheckCircle2 size={16} /></span><span className="stat-label">SUDAH SELESAI</span><strong>{completedCount}<small> tugas</small></strong><div className="stat-note">Setiap progres itu berarti</div></div>
-            <div className="stat-card"><span className="stat-icon stat-icon-amber"><Folder size={16} /></span><span className="stat-label">DAFTAR AKTIF</span><strong>{new Set(tasks.filter((task) => !task.completed).map((task) => task.category)).size}<small> daftar</small></strong><div className="stat-note">Semua tertata di satu tempat</div></div>
-          </section>
-
-          {view === "today" && (
-            <section className="week-strip" aria-label="Pilih tanggal">
-              <div className="week-heading"><div><span className="eyebrow">RENCANAKAN HARI</span><strong>{new Intl.DateTimeFormat("id-ID", { month: "long", year: "numeric" }).format(weekDays[3])}</strong></div><div className="week-controls"><button type="button" aria-label="Minggu sebelumnya" onClick={() => setSelectedDate(shiftDate(selectedDate, -7))}><ArrowLeft size={15} /></button><button type="button" aria-label="Minggu berikutnya" onClick={() => setSelectedDate(shiftDate(selectedDate, 7))}><ArrowRight size={15} /></button></div></div>
-              <div className="week-days">{weekDays.map((date) => {
-                const dayKey = localDateString(date);
-                const count = tasks.filter((task) => task.dueDate === dayKey && !task.completed).length;
-                return <button type="button" key={dayKey} className={`week-day ${selectedDate === dayKey ? "selected" : ""} ${today === dayKey ? "is-today" : ""}`} onClick={() => setSelectedDate(dayKey)}><span>{new Intl.DateTimeFormat("id-ID", { weekday: "short" }).format(date)}</span><strong>{date.getDate()}</strong><i className={count ? "has-tasks" : ""} /></button>;
-              })}</div>
-            </section>
+          {syncError && (
+            <div className="sync-error" role="alert">
+              <Cloud size={16} />
+              {syncError}
+              <button
+                type="button"
+                aria-label="Tutup pesan"
+                onClick={() => setSyncError("")}
+              >
+                <X size={15} />
+              </button>
+            </div>
           )}
 
-          <section className="task-section">
-            <div className="task-section-heading">
-              <div><h2>{categoryFilter || (view === "today" ? "Rencana hari ini" : view === "upcoming" ? "Yang akan datang" : view === "completed" ? "Jejak langkahmu" : "Kotak masuk")}</h2><span>{filteredTasks.length} {filteredTasks.length === 1 ? "tugas" : "tugas"}</span></div>
-              <button className={`sort-button ${sortByPriority ? "sort-active" : ""}`} type="button" onClick={() => setSortByPriority(!sortByPriority)}><ArrowDownWideNarrow size={15} />Prioritas<ChevronDown size={14} /></button>
-            </div>
+          {search.trim() ? (
+            <section className="search-results-section">
+              <div className="search-results-header">
+                <div>
+                  <h2>Hasil Pencarian</h2>
+                  <p>
+                    Ditemukan {filteredTasks.length} tugas untuk &ldquo;{search}&rdquo;
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="button-quiet"
+                  onClick={() => setSearch("")}
+                >
+                  <X size={14} /> Tutup Pencarian
+                </button>
+              </div>
 
-            {view !== "completed" && <form className="quick-add" onSubmit={addQuickTask}><span className="quick-add-icon"><Plus size={17} /></span><input aria-label="Tambah tugas cepat" value={quickTitle} onChange={(event) => setQuickTitle(event.target.value)} placeholder="Tambahkan satu hal yang ingin kamu selesaikan..." /><button type="button" className="quick-detail-button" onClick={() => setDialogTask(null)} title="Buka detail tugas">Detail</button><button className="quick-submit" type="submit" disabled={!quickTitle.trim()} aria-label="Simpan tugas cepat"><ArrowRight size={17} /></button></form>}
+              {filteredTasks.length > 0 ? (
+                <div className={`task-list layout-${preferences.layout}`}>
+                  <AnimatePresence initial={false}>
+                    {filteredTasks.map((task) => (
+                      <motion.article
+                        layout
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.95 }}
+                        transition={{ duration: 0.18 }}
+                        className={`task-row ${task.completed ? "task-completed" : ""}`}
+                        key={task.id}
+                      >
+                        <button
+                          type="button"
+                          className={`task-check ${task.completed ? "checked" : ""}`}
+                          aria-label={task.completed ? "Tandai belum selesai" : "Tandai selesai"}
+                          onClick={() => toggleTask(task)}
+                        >
+                          {task.completed && <Check size={14} />}
+                        </button>
+                        <button
+                          type="button"
+                          className="task-content"
+                          onClick={() => setDialogTask(task)}
+                        >
+                          <span className="task-title">{task.title}</span>
+                          {task.notes && (
+                            <span className="task-notes">{task.notes}</span>
+                          )}
+                          <span className="task-meta">
+                            <span className={`task-date ${task.dueDate && task.dueDate < today && !task.completed ? "overdue" : ""}`}>
+                              <Clock3 size={12} />{formatDueDate(task.dueDate)}
+                            </span>
+                            <span className={`task-category cat-${categories.indexOf(task.category) >= 0 ? categories.indexOf(task.category) : 0}`}>
+                              <i />{task.category}
+                            </span>
+                            {task.priority === "high" && <span className="priority-label">Prioritas tinggi</span>}
+                          </span>
+                        </button>
+                        <button
+                          className="task-edit"
+                          type="button"
+                          onClick={() => setDialogTask(task)}
+                          aria-label={`Edit ${task.title}`}
+                        >
+                          <ArrowRight size={16} />
+                        </button>
+                      </motion.article>
+                    ))}
+                  </AnimatePresence>
+                </div>
+              ) : (
+                <div className="empty-state">
+                  <div className="empty-icon"><Search size={24} /></div>
+                  <h3>Tidak ada tugas yang cocok.</h3>
+                  <p>Coba kata kunci lain atau hapus pencarian untuk kembali ke dashboard.</p>
+                </div>
+              )}
+            </section>
+          ) : (
+            <DashboardView
+              tasks={tasks}
+              stickyNotes={stickyNotes}
+              userName={greetingName}
+              onOpenActionModal={(type, cat) => {
+                setActionModal({ type, categoryName: cat });
+              }}
+              onOpenStickyNote={(note) => setActiveStickyNote(note)}
+              onCreateStickyNote={() => {
+                const newNote = addNote();
+                setActiveStickyNote(newNote);
+              }}
+              onOpenTaskDetail={(task) => setDialogTask(task)}
+              onToggleTask={toggleTask}
+            />
+          )}
 
-            {tasksLoading ? <div className="list-loading"><span className="loader" />Memuat tugas dari cloud...</div>
-              : filteredTasks.length ? <div className="task-list">{filteredTasks.map((task) => (
-                <article className={`task-row ${task.completed ? "task-completed" : ""}`} key={task.id}>
-                  <button type="button" className={`task-check ${task.completed ? "checked" : ""}`} aria-label={task.completed ? "Tandai belum selesai" : "Tandai selesai"} onClick={() => toggleTask(task)}>{task.completed && <Check size={14} />}</button>
-                  <button type="button" className="task-content" onClick={() => setDialogTask(task)}>
-                    <span className="task-title">{task.title}</span>
-                    {task.notes && <span className="task-notes">{task.notes}</span>}
-                    <span className="task-meta"><span className={`task-date ${task.dueDate && task.dueDate < today && !task.completed ? "overdue" : ""}`}><Clock3 size={12} />{formatDueDate(task.dueDate)}</span><span className={`task-category cat-${categories.indexOf(task.category) >= 0 ? categories.indexOf(task.category) : 0}`}><i />{task.category}</span>{task.priority === "high" && <span className="priority-label">Prioritas tinggi</span>}{task.subtasks.length > 0 && <span className="subtask-count"><ListTodo size={12} />{task.subtasks.filter((item) => item.completed).length}/{task.subtasks.length}</span>}</span>
-                  </button>
-                  {task.subtasks.length > 0 && <div className="task-subtasks">{task.subtasks.slice(0, 3).map((subtask) => <button key={subtask.id} className={`task-subtask ${subtask.completed ? "subtask-done" : ""}`} type="button" onClick={() => toggleSubtask(task, subtask)}><span className={`mini-check ${subtask.completed ? "checked" : ""}`}>{subtask.completed && <Check size={9} />}</span>{subtask.title}</button>)}</div>}
-                  <button className="task-edit" type="button" onClick={() => setDialogTask(task)} aria-label={`Edit ${task.title}`}><ArrowRight size={16} /></button>
-                </article>
-              ))}</div>
-                : <div className="empty-state"><div className="empty-icon"><CheckCircle2 size={24} /></div><h3>{search ? "Tidak ada yang cocok." : view === "completed" ? "Ruang untuk hal berikutnya." : "Hari ini masih milikmu."}</h3><p>{search ? "Coba kata kunci lain atau hapus pencarian." : view === "completed" ? "Tugas yang selesai akan muncul di sini." : "Tambahkan tugas kecil pertama, atau nikmati ruang kosong ini."}</p>{!search && view !== "completed" && <button className="button-quiet" type="button" onClick={() => setDialogTask(null)}><Plus size={15} /> Buat tugas dengan detail</button>}</div>}
-          </section>
-          <footer className="content-footer"><span><span className={`footer-dot ${cloudState}`} />{cloudState === "synced" ? "Semua perubahan tersimpan di cloud" : cloudState === "syncing" ? "Menyinkronkan perubahan..." : cloudState === "error" ? "Ada perubahan yang perlu disinkronkan" : "Menghubungkan ke cloud..."}</span><span>Pelan-pelan juga sampai.</span></footer>
+          <footer className="content-footer">
+            <span>
+              <span className={`footer-dot ${cloudState}`} />
+              {cloudState === "synced"
+                ? "Semua perubahan tersimpan di cloud"
+                : cloudState === "syncing"
+                ? "Menyinkronkan perubahan..."
+                : cloudState === "error"
+                ? "Ada perubahan yang perlu disinkronkan"
+                : "Menghubungkan ke cloud..."}
+            </span>
+            {preferences.showMotto && <span>Pelan-pelan juga sampai.</span>}
+          </footer>
         </div>
       </main>
 
-      {dialogTask !== undefined && <TaskDialog task={dialogTask} onClose={() => setDialogTask(undefined)} onSave={(draft) => saveTask(draft, dialogTask ?? undefined)} onDelete={() => dialogTask ? removeTask(dialogTask) : Promise.resolve()} />}
+      {/* Task Details Modal (Full Form) */}
+      {dialogTask !== undefined && (
+        <TaskDialog
+          task={dialogTask}
+          onClose={() => setDialogTask(undefined)}
+          onSave={(draft) => saveTask(draft, dialogTask ?? undefined)}
+          onDelete={() => dialogTask ? removeTask(dialogTask) : Promise.resolve()}
+        />
+      )}
+
+      {/* Draggable & Minimizable Sticky Note Modal (Pure Note, No Progress) */}
+      {activeStickyNote && (
+        <DraggableNoteModal
+          note={{
+            id: activeStickyNote.id,
+            title: activeStickyNote.title,
+            content: activeStickyNote.content,
+            color: activeStickyNote.color,
+            pinned: activeStickyNote.pinned,
+          }}
+          onClose={() => setActiveStickyNote(null)}
+          onSave={(updates) => {
+            updateNote(activeStickyNote.id, updates);
+            setActiveStickyNote((prev) => (prev ? { ...prev, ...updates } : null));
+          }}
+          onDelete={() => {
+            deleteNote(activeStickyNote.id);
+            setActiveStickyNote(null);
+          }}
+        />
+      )}
+
+      {/* In-Dashboard Action Card Pop-up (Draggable & Minimizable) */}
+      {actionModal.type && (
+        <ActionListModal
+          isOpen={true}
+          title={
+            actionModal.type === "today"
+              ? "Tugas Hari Ini"
+              : actionModal.type === "active"
+              ? "Semua Tugas Aktif"
+              : actionModal.type === "completed"
+              ? "Tugas Terselesaikan"
+              : `Kategori: ${actionModal.categoryName}`
+          }
+          subtitle={
+            actionModal.type === "today"
+              ? "Fokus selesaikan tugas dengan tenggat hari ini"
+              : actionModal.type === "active"
+              ? "Kumpulan seluruh tugas yang sedang berjalan"
+              : actionModal.type === "completed"
+              ? "Riwayat tugas yang telah berhasil kamu selesaikan"
+              : `Semua tugas dalam daftar ${actionModal.categoryName}`
+          }
+          icon={
+            actionModal.type === "today"
+              ? Sun
+              : actionModal.type === "active"
+              ? Layers
+              : actionModal.type === "completed"
+              ? CheckCircle2
+              : Folder
+          }
+          tasks={
+            actionModal.type === "today"
+              ? tasks.filter((t) => !t.completed && t.dueDate === today)
+              : actionModal.type === "active"
+              ? tasks.filter((t) => !t.completed)
+              : actionModal.type === "completed"
+              ? tasks.filter((t) => t.completed)
+              : tasks.filter(
+                  (t) =>
+                    !t.completed && t.category === actionModal.categoryName
+                )
+          }
+          onToggleTask={toggleTask}
+          onOpenTaskDetail={(task) => setDialogTask(task)}
+          onAddTask={
+            actionModal.type !== "completed"
+              ? async (title) => {
+                  const dueDate = actionModal.type === "today" ? today : "";
+                  const category =
+                    actionModal.type === "category" && actionModal.categoryName
+                      ? actionModal.categoryName
+                      : "Personal";
+                  await saveTask({
+                    ...emptyDraft,
+                    title,
+                    dueDate,
+                    category,
+                  });
+                }
+              : undefined
+          }
+          onClose={() => setActionModal({ type: null })}
+        />
+      )}
+
+      {/* Theme & Layout Dashboard Menu */}
+      <ThemeDashboardMenu
+        isOpen={isThemeMenuOpen}
+        onClose={() => setIsThemeMenuOpen(false)}
+        preferences={preferences}
+        onSelectTheme={setTheme}
+        onSelectLayout={setLayout}
+        onToggleStats={toggleStats}
+        onToggleWeekStrip={toggleWeekStrip}
+        onToggleMotto={toggleMotto}
+        onReset={resetPreferences}
+      />
+
+      {/* Logout Confirmation Modal */}
+      <LogoutConfirmModal
+        isOpen={showLogoutConfirm}
+        userEmail={user.email ?? undefined}
+        onCancel={() => setShowLogoutConfirm(false)}
+        onConfirm={handleConfirmLogout}
+        isLoggingOut={isLoggingOut}
+      />
     </div>
   );
 }
