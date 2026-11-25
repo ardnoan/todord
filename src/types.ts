@@ -1,3 +1,11 @@
+import type {
+  AccountType,
+  CategoryType,
+  RecurringFrequency,
+  TransactionStatus,
+  TransactionType,
+} from "./lib/finance/types";
+
 export type Priority = "low" | "medium" | "high";
 
 export type Subtask = {
@@ -17,7 +25,7 @@ export type StickyNote = {
   createdAt: number;
 };
 
-export type ActionModalType = "today" | "active" | "completed" | "category" | null;
+export type ActionModalType = "today" | "active" | "completed" | "category" | "date" | null;
 
 export type Task = {
   id: string;
@@ -99,9 +107,237 @@ export type Database = {
         };
         Relationships: [];
       };
+      finance_accounts: {
+        Row: {
+          id: string;
+          user_id: string;
+          name: string;
+          type: AccountType;
+          opening_balance: number;
+          color: string;
+          icon: string;
+          is_active: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id?: string;
+          name: string;
+          type: AccountType;
+          opening_balance?: number;
+          color?: string;
+          icon?: string;
+          is_active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          name?: string;
+          type?: AccountType;
+          opening_balance?: number;
+          color?: string;
+          icon?: string;
+          is_active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      finance_categories: {
+        Row: {
+          id: string;
+          user_id: string;
+          name: string;
+          type: CategoryType;
+          icon: string | null;
+          color: string | null;
+          parent_id: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id?: string;
+          name: string;
+          type: CategoryType;
+          icon?: string | null;
+          color?: string | null;
+          parent_id?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          name?: string;
+          type?: CategoryType;
+          icon?: string | null;
+          color?: string | null;
+          parent_id?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      finance_transactions: {
+        Row: {
+          id: string;
+          user_id: string;
+          account_id: string;
+          transfer_account_id: string | null;
+          category_id: string | null;
+          amount: number;
+          type: TransactionType;
+          status: TransactionStatus;
+          reference_no: string | null;
+          transaction_date: string;
+          title: string;
+          notes: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id?: string;
+          account_id: string;
+          transfer_account_id?: string | null;
+          category_id?: string | null;
+          amount: number;
+          type: TransactionType;
+          status?: TransactionStatus;
+          reference_no?: string | null;
+          transaction_date?: string;
+          title: string;
+          notes?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          account_id?: string;
+          transfer_account_id?: string | null;
+          category_id?: string | null;
+          amount?: number;
+          type?: TransactionType;
+          status?: TransactionStatus;
+          reference_no?: string | null;
+          transaction_date?: string;
+          title?: string;
+          notes?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      finance_budgets: {
+        Row: {
+          id: string;
+          user_id: string;
+          category_id: string;
+          limit_amount: number;
+          month: number;
+          year: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id?: string;
+          category_id: string;
+          limit_amount: number;
+          month: number;
+          year: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          category_id?: string;
+          limit_amount?: number;
+          month?: number;
+          year?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      finance_recurring_transactions: {
+        Row: {
+          id: string;
+          user_id: string;
+          account_id: string;
+          category_id: string | null;
+          amount: number;
+          type: CategoryType;
+          title: string;
+          frequency: RecurringFrequency;
+          start_date: string;
+          next_due_date: string;
+          last_processed_date: string | null;
+          is_active: boolean;
+          notes: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id?: string;
+          account_id: string;
+          category_id?: string | null;
+          amount: number;
+          type: CategoryType;
+          title: string;
+          frequency: RecurringFrequency;
+          start_date?: string;
+          next_due_date: string;
+          last_processed_date?: string | null;
+          is_active?: boolean;
+          notes?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          account_id?: string;
+          category_id?: string | null;
+          amount?: number;
+          type?: CategoryType;
+          title?: string;
+          frequency?: RecurringFrequency;
+          start_date?: string;
+          next_due_date?: string;
+          last_processed_date?: string | null;
+          is_active?: boolean;
+          notes?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      execute_finance_recurring: {
+        Args: {
+          p_recurring_id: string;
+          p_execution_date?: string;
+        };
+        Returns: Json;
+      };
+      import_finance_data: {
+        Args: {
+          p_payload: Json;
+          p_upsert?: boolean;
+        };
+        Returns: Json;
+      };
+    };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;
   };

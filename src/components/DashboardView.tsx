@@ -6,6 +6,8 @@ import {
   Clock3,
   Folder,
   ArrowRight,
+  ArrowUp,
+  ArrowDown,
   TrendingUp,
   Pin,
   Plus,
@@ -29,25 +31,32 @@ interface DashboardViewProps {
   tasks: Task[];
   stickyNotes: StickyNoteType[];
   userName: string;
+  categoryFilter: "all" | "Work" | "Personal" | "Study";
+  onCategoryFilterChange: (cat: "all" | "Work" | "Personal" | "Study") => void;
   onOpenActionModal: (
-    type: "today" | "active" | "completed" | "category",
-    categoryName?: string
+    type: "today" | "active" | "completed" | "category" | "date",
+    categoryName?: string,
+    dateKey?: string
   ) => void;
   onOpenStickyNote: (note: StickyNoteType) => void;
   onCreateStickyNote: () => void;
   onOpenTaskDetail: (task: Task) => void;
   onToggleTask: (task: Task) => Promise<void>;
+  onMoveTask: (taskId: string, direction: "up" | "down", visibleIds: string[]) => void;
 }
 
 export function DashboardView({
   tasks,
   stickyNotes,
   userName,
+  categoryFilter,
+  onCategoryFilterChange,
   onOpenActionModal,
   onOpenStickyNote,
   onCreateStickyNote,
   onOpenTaskDetail,
   onToggleTask,
+  onMoveTask,
 }: DashboardViewProps) {
   // Pure task progress: Sticky notes are pure notes and do NOT count towards completion progress
   const totalTasks = tasks.length;
@@ -58,10 +67,9 @@ export function DashboardView({
 
   const todayStr = new Date().toISOString().split("T")[0];
   const todayTasks = activeTasks.filter((t) => t.dueDate === todayStr);
-  const highPriorityTasks = activeTasks.filter((t) => t.priority === "high");
 
-  // Category Quick Filter State
-  const [categoryFilter, setCategoryFilter] = useState<"all" | "Work" | "Personal" | "Study">("all");
+  // Category Quick Filter State is controlled by parent (App.tsx)
+  const setCategoryFilter = onCategoryFilterChange;
 
   // Dynamic Progress calculations based on active category filter
   const currentTotalTasks =
@@ -676,7 +684,7 @@ export function DashboardView({
                     onMouseLeave={() => setHoveredDay(null)}
                     onClick={() => {
                       if (cell.total > 0) {
-                        onOpenActionModal(cell.isToday ? "today" : "active", categoryFilter !== "all" ? categoryFilter : undefined);
+                        onOpenActionModal("date", undefined, cell.dateKey);
                       }
                     }}
                     style={{ cursor: cell.total > 0 ? "pointer" : "default" }}
@@ -823,69 +831,100 @@ export function DashboardView({
           </div>
 
           <div className="dashboard-spotlight-list">
-            {(todayTasks.length > 0
-              ? todayTasks
-              : highPriorityTasks.length > 0
-              ? highPriorityTasks
-              : activeTasks.slice(0, 4)
-            ).length > 0 ? (
-              (todayTasks.length > 0
-                ? todayTasks
-                : highPriorityTasks.length > 0
-                ? highPriorityTasks
-                : activeTasks.slice(0, 4)
-              ).map((t) => (
-                <div key={t.id} className="spotlight-task-row">
-                  <button
-                    type="button"
-                    className={`task-check ${t.completed ? "checked" : ""}`}
-                    onClick={() => onToggleTask(t)}
-                    title="Tandai selesai"
-                  >
-                    {t.completed && <Check size={13} />}
-                  </button>
-                  <div
-                    className="spotlight-task-info"
-                    onClick={() => onOpenTaskDetail(t)}
-                    title="Klik untuk melihat detail tugas"
-                  >
-                    <strong>{t.title}</strong>
-                    <div className="spotlight-meta">
-                      <span className={`spotlight-cat cat-badge-${t.category.toLowerCase()}`}>
-                        {t.category}
-                      </span>
-                      {t.priority === "high" && (
-                        <span className="priority-label">Tinggi</span>
-                      )}
-                      {t.dueDate && (
-                        <span className="spotlight-due">
-                          <Clock3 size={11} /> {t.dueDate}
+            {(() => {
+              const spotlightList =
+                displayTodayTasks.length > 0
+                  ? displayTodayTasks
+                  : displayHighPriority.length > 0
+                  ? displayHighPriority
+                  : displayActiveTasks.slice(0, 4);
+              const spotlightIds = spotlightList.map((item) => item.id);
+              return spotlightList.length > 0 ? (
+                spotlightList.map((t, idx) => (
+                  <div key={t.id} className="spotlight-task-row">
+                    <span className="task-order-badge" title={`Urutan #${idx + 1}`}>
+                      {idx + 1}
+                    </span>
+                    <button
+                      type="button"
+                      className={`task-check ${t.completed ? "checked" : ""}`}
+                      onClick={() => onToggleTask(t)}
+                      title="Tandai selesai"
+                    >
+                      {t.completed && <Check size={13} />}
+                    </button>
+                    <div
+                      className="spotlight-task-info"
+                      onClick={() => onOpenTaskDetail(t)}
+                      title="Klik untuk melihat detail tugas"
+                    >
+                      <strong>{t.title}</strong>
+                      <div className="spotlight-meta">
+                        <span className={`spotlight-cat cat-badge-${t.category.toLowerCase()}`}>
+                          {t.category}
                         </span>
-                      )}
+                        {t.priority === "high" && (
+                          <span className="priority-label">Tinggi</span>
+                        )}
+                        {t.dueDate && (
+                          <span className="spotlight-due">
+                            <Clock3 size={11} /> {t.dueDate}
+                          </span>
+                        )}
+                      </div>
                     </div>
+                    {spotlightList.length > 1 && (
+                      <div className="task-reorder-controls">
+                        <button
+                          type="button"
+                          className="task-reorder-btn"
+                          disabled={idx === 0}
+                          onClick={() => onMoveTask(t.id, "up", spotlightIds)}
+                          title="Pindah ke atas"
+                          aria-label={`Pindah ${t.title} ke atas`}
+                        >
+                          <ArrowUp size={12} />
+                        </button>
+                        <button
+                          type="button"
+                          className="task-reorder-btn"
+                          disabled={idx === spotlightList.length - 1}
+                          onClick={() => onMoveTask(t.id, "down", spotlightIds)}
+                          title="Pindah ke bawah"
+                          aria-label={`Pindah ${t.title} ke bawah`}
+                        >
+                          <ArrowDown size={12} />
+                        </button>
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      className="spotlight-open-btn"
+                      onClick={() => onOpenTaskDetail(t)}
+                      title="Buka form detail"
+                    >
+                      <ArrowRight size={14} />
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    className="spotlight-open-btn"
-                    onClick={() => onOpenTaskDetail(t)}
-                    title="Buka form detail"
-                  >
-                    <ArrowRight size={14} />
-                  </button>
+                ))
+              ) : (
+                <div className="spotlight-empty">
+                  <CheckCircle2 size={24} />
+                  <p>Tidak ada tugas mendesak saat ini. Semua terkendali.</p>
                 </div>
-              ))
-            ) : (
-              <div className="spotlight-empty">
-                <CheckCircle2 size={24} />
-                <p>Tidak ada tugas mendesak saat ini. Semua terkendali.</p>
-              </div>
-            )}
+              );
+            })()}
           </div>
 
           <button
             type="button"
             className="panel-view-all-btn"
-            onClick={() => onOpenActionModal("today")}
+            onClick={() =>
+              onOpenActionModal(
+                "today",
+                categoryFilter !== "all" ? categoryFilter : undefined
+              )
+            }
           >
             <span>Buka Pop-up Aksi Lengkap Hari Ini</span>
             <ArrowRight size={14} />

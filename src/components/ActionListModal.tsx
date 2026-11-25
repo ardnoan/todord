@@ -8,6 +8,8 @@ import {
   Minimize2,
   Maximize2,
   ArrowRight,
+  ArrowUp,
+  ArrowDown,
   Clock3,
   ListTodo,
 } from "lucide-react";
@@ -20,9 +22,11 @@ interface ActionListModalProps {
   icon: React.ElementType;
   tasks: Task[];
   defaultCategory?: string;
+  isCategoryLocked?: boolean;
   onToggleTask: (task: Task) => Promise<void>;
   onOpenTaskDetail: (task: Task) => void;
   onAddTask?: (title: string, category: string) => Promise<void>;
+  onMoveTask?: (taskId: string, direction: "up" | "down", visibleIds: string[]) => void;
   onClose: () => void;
 }
 
@@ -33,9 +37,11 @@ export function ActionListModal({
   icon: Icon,
   tasks,
   defaultCategory = "Work",
+  isCategoryLocked = false,
   onToggleTask,
   onOpenTaskDetail,
   onAddTask,
+  onMoveTask,
   onClose,
 }: ActionListModalProps) {
   const [isMinimized, setIsMinimized] = useState(false);
@@ -185,8 +191,13 @@ export function ActionListModal({
                 <select
                   value={taskCategory}
                   onChange={(e) => setTaskCategory(e.target.value)}
+                  disabled={isCategoryLocked}
                   className="action-category-select"
-                  title="Pilih kategori tugas (Work / Personal / Study)"
+                  title={
+                    isCategoryLocked
+                      ? `Kategori dikunci ke ${taskCategory} sesuai tab aktif`
+                      : "Pilih kategori tugas (Work / Personal / Study)"
+                  }
                 >
                   <option value="Work">Work</option>
                   <option value="Personal">Personal</option>
@@ -213,11 +224,15 @@ export function ActionListModal({
             {/* Tasks List */}
             <div className="action-modal-list">
               {tasks.length > 0 ? (
-                tasks.map((task) => (
+                tasks.map((task, index) => (
                   <div
                     key={task.id}
                     className={`action-task-item ${task.completed ? "completed" : ""}`}
                   >
+                    <span className="task-order-badge" title={`Urutan #${index + 1}`}>
+                      {index + 1}
+                    </span>
+
                     <button
                       type="button"
                       className={`task-check ${task.completed ? "checked" : ""}`}
@@ -249,6 +264,43 @@ export function ActionListModal({
                         )}
                       </div>
                     </div>
+
+                    {onMoveTask && tasks.length > 1 && (
+                      <div className="task-reorder-controls">
+                        <button
+                          type="button"
+                          className="task-reorder-btn"
+                          disabled={index === 0}
+                          onClick={() =>
+                            onMoveTask(
+                              task.id,
+                              "up",
+                              tasks.map((t) => t.id)
+                            )
+                          }
+                          title="Pindah ke atas"
+                          aria-label={`Pindah ${task.title} ke atas`}
+                        >
+                          <ArrowUp size={12} />
+                        </button>
+                        <button
+                          type="button"
+                          className="task-reorder-btn"
+                          disabled={index === tasks.length - 1}
+                          onClick={() =>
+                            onMoveTask(
+                              task.id,
+                              "down",
+                              tasks.map((t) => t.id)
+                            )
+                          }
+                          title="Pindah ke bawah"
+                          aria-label={`Pindah ${task.title} ke bawah`}
+                        >
+                          <ArrowDown size={12} />
+                        </button>
+                      </div>
+                    )}
 
                     <button
                       type="button"

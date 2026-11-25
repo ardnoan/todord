@@ -14,21 +14,26 @@ import {
   LogOut,
   Plus,
   Search,
+  ShieldCheck,
   SlidersHorizontal,
   Sun,
   Trash2,
+  Wallet,
   X,
 } from "lucide-react";
 import { isSupabaseConfigured, supabase } from "./supabase";
 import type { Database, Json, Priority, StickyNote as StickyNoteType, Subtask, Task, TaskDraft } from "./types";
 import { useThemePreferences } from "./hooks/useThemePreferences";
 import { useStickyNotes } from "./hooks/useStickyNotes";
+import { isAdminUser, useAppParameters } from "./hooks/useAppParameters";
 import { ThemeDashboardMenu } from "./components/ThemeDashboardMenu";
 import { DraggableNoteModal } from "./components/DraggableNoteModal";
 import { ActionListModal } from "./components/ActionListModal";
 import { LogoutConfirmModal } from "./components/LogoutConfirmModal";
 import { EmailVerificationView } from "./components/EmailVerificationView";
 import { DashboardView } from "./components/DashboardView";
+import { FinanceView } from "./components/finance/FinanceView";
+import { AdminParametersView } from "./components/AdminParametersView";
 
 type CloudState = "connecting" | "synced" | "syncing" | "error";
 type TaskRow = Database["public"]["Tables"]["tasks"]["Row"];
@@ -236,11 +241,13 @@ function AuthScreen() {
 
 function TaskDialog({
   task,
+  lockedCategory,
   onClose,
   onSave,
   onDelete,
 }: {
   task: Task | null;
+  lockedCategory?: string | null;
   onClose: () => void;
   onSave: (draft: TaskDraft) => Promise<void>;
   onDelete: () => Promise<void>;
@@ -249,12 +256,12 @@ function TaskDialog({
     title: task.title,
     notes: task.notes,
     dueDate: task.dueDate,
-    category: task.category,
+    category: lockedCategory || task.category,
     priority: task.priority,
     completed: task.completed,
     subtasks: task.subtasks,
     color: task.color,
-  } : emptyDraft);
+  } : { ...emptyDraft, category: lockedCategory || emptyDraft.category });
   const [subtaskTitle, setSubtaskTitle] = useState("");
   const [busy, setBusy] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -318,7 +325,22 @@ function TaskDialog({
         <textarea id="task-notes" rows={2} value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} placeholder="Tambahkan konteks kecil..." />
         <div className="form-grid">
           <div><label className="field-label" htmlFor="task-date">Tanggal</label><input id="task-date" type="date" value={draft.dueDate} onChange={(event) => setDraft({ ...draft, dueDate: event.target.value })} /></div>
-          <div><label className="field-label" htmlFor="task-category">Daftar</label><select id="task-category" value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })}>{categories.map((category) => <option key={category}>{category}</option>)}</select></div>
+          <div>
+            <label className="field-label" htmlFor="task-category">Daftar</label>
+            <select
+              id="task-category"
+              value={draft.category}
+              disabled={Boolean(lockedCategory)}
+              title={
+                lockedCategory
+                  ? `Kategori dikunci ke ${lockedCategory} sesuai tab aktif`
+                  : undefined
+              }
+              onChange={(event) => setDraft({ ...draft, category: event.target.value })}
+            >
+              {categories.map((category) => <option key={category}>{category}</option>)}
+            </select>
+          </div>
         </div>
         <label className="field-label" htmlFor="task-priority">Prioritas</label>
         <select id="task-priority" value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: event.target.value as Priority })}>
@@ -375,13 +397,75 @@ function App() {
 
   // In-Dashboard Action Pop-up Modal (Draggable & Minimizable)
   const [actionModal, setActionModal] = useState<{
-    type: "today" | "active" | "completed" | "category" | null;
+    type: "today" | "active" | "completed" | "category" | "date" | null;
     categoryName?: string;
+    dateKey?: string;
   }>({ type: null });
+
+  // Controlled Category Tab Filter on DashboardView
+  const [dashboardCategoryFilter, setDashboardCategoryFilter] = useState<
+    "all" | "Work" | "Personal" | "Study"
+  >("all");
+
+  // Persistent Custom Task Ordering (for Tugas Hari Ini, Tugas Aktif, etc.)
+  const [taskOrder, setTaskOrder] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem("ruang.task.order.v1");
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const orderedTasks = useMemo(() => {
+    if (taskOrder.length === 0) return tasks;
+    const rankMap = new Map(taskOrder.map((id, idx) => [id, idx]));
+    return [...tasks].sort((a, b) => {
+      const ra = rankMap.get(a.id);
+      const rb = rankMap.get(b.id);
+      if (ra !== undefined && rb !== undefined) return ra - rb;
+      if (ra !== undefined) return -1;
+      if (rb !== undefined) return 1;
+      return b.createdAt - a.createdAt;
+    });
+  }, [tasks, taskOrder]);
+
+  function moveTaskOrder(
+    taskId: string,
+    direction: "up" | "down",
+    visibleIds: string[]
+  ) {
+    const pos = visibleIds.indexOf(taskId);
+    if (pos < 0) return;
+    const swapPos = direction === "up" ? pos - 1 : pos + 1;
+    if (swapPos < 0 || swapPos >= visibleIds.length) return;
+
+    const neighborId = visibleIds[swapPos];
+    const baseOrder = orderedTasks.map((t) => t.id);
+    const idxA = baseOrder.indexOf(taskId);
+    const idxB = baseOrder.indexOf(neighborId);
+    if (idxA < 0 || idxB < 0) return;
+
+    const next = [...baseOrder];
+    [next[idxA], next[idxB]] = [next[idxB], next[idxA]];
+    setTaskOrder(next);
+    try {
+      localStorage.setItem("ruang.task.order.v1", JSON.stringify(next));
+    } catch {
+      // ignore storage quota errors
+    }
+  }
 
   // Logout Confirmation Modal
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  // Workspace Switcher & Admin Parameter Values
+  const [activeWorkspace, setActiveWorkspace] = useState<
+    "tasks" | "finance" | "admin"
+  >("tasks");
+  const { parameters, updateParameters, resetParameters } = useAppParameters();
 
   useEffect(() => {
     if (!supabase) return;
@@ -577,6 +661,7 @@ function App() {
   if (!user) return <AuthScreen />;
 
   const greetingName = user.email?.split("@")[0] ?? "Kamu";
+  const isAdmin = isAdminUser(user);
 
   return (
     <div className="app-shell">
@@ -616,6 +701,37 @@ function App() {
                   : "Menghubungkan"}
               </span>
             </div>
+
+            <nav className="workspace-switcher" aria-label="Pilih Dashboard">
+              <button
+                type="button"
+                className={`workspace-switch-btn ${activeWorkspace === "tasks" ? "active" : ""}`}
+                onClick={() => setActiveWorkspace("tasks")}
+              >
+                <CheckCheck size={14} />
+                <span>Tugas</span>
+              </button>
+              {parameters.enableFinanceModule && (
+                <button
+                  type="button"
+                  className={`workspace-switch-btn ${activeWorkspace === "finance" ? "active" : ""}`}
+                  onClick={() => setActiveWorkspace("finance")}
+                >
+                  <Wallet size={14} />
+                  <span>Keuangan</span>
+                </button>
+              )}
+              {isAdmin && (
+                <button
+                  type="button"
+                  className={`workspace-switch-btn ${activeWorkspace === "admin" ? "active" : ""}`}
+                  onClick={() => setActiveWorkspace("admin")}
+                >
+                  <ShieldCheck size={14} />
+                  <span>Admin</span>
+                </button>
+              )}
+            </nav>
           </div>
 
           <div className="topbar-actions">
@@ -795,13 +911,28 @@ function App() {
                 </div>
               )}
             </section>
+          ) : activeWorkspace === "finance" && parameters.enableFinanceModule ? (
+            <FinanceView
+              userId={user.id}
+              userName={greetingName}
+              parameters={parameters}
+            />
+          ) : activeWorkspace === "admin" && isAdmin ? (
+            <AdminParametersView
+              parameters={parameters}
+              onUpdate={updateParameters}
+              onReset={resetParameters}
+              adminEmail={user.email}
+            />
           ) : (
             <DashboardView
-              tasks={tasks}
+              tasks={orderedTasks}
               stickyNotes={stickyNotes}
               userName={greetingName}
-              onOpenActionModal={(type, cat) => {
-                setActionModal({ type, categoryName: cat });
+              categoryFilter={dashboardCategoryFilter}
+              onCategoryFilterChange={setDashboardCategoryFilter}
+              onOpenActionModal={(type, cat, dateKey) => {
+                setActionModal({ type, categoryName: cat, dateKey });
               }}
               onOpenStickyNote={(note) => setActiveStickyNote(note)}
               onCreateStickyNote={() => {
@@ -810,6 +941,7 @@ function App() {
               }}
               onOpenTaskDetail={(task) => setDialogTask(task)}
               onToggleTask={toggleTask}
+              onMoveTask={moveTaskOrder}
             />
           )}
 
@@ -833,6 +965,11 @@ function App() {
       {dialogTask !== undefined && (
         <TaskDialog
           task={dialogTask}
+          lockedCategory={
+            activeWorkspace === "tasks" && dashboardCategoryFilter !== "all"
+              ? dashboardCategoryFilter
+              : null
+          }
           onClose={() => setDialogTask(undefined)}
           onSave={(draft) => saveTask(draft, dialogTask ?? undefined)}
           onDelete={() => dialogTask ? removeTask(dialogTask) : Promise.resolve()}
@@ -878,6 +1015,8 @@ function App() {
               ? actionModal.categoryName
                 ? `Tugas Selesai (${actionModal.categoryName})`
                 : "Tugas Terselesaikan"
+              : actionModal.type === "date"
+              ? `Tugas Tanggal ${actionModal.dateKey ? formatDueDate(actionModal.dateKey) : ""}`
               : `Kategori: ${actionModal.categoryName}`
           }
           subtitle={
@@ -887,6 +1026,8 @@ function App() {
               ? `Kumpulan seluruh tugas yang sedang berjalan ${actionModal.categoryName ? `kategori ${actionModal.categoryName}` : ""}`
               : actionModal.type === "completed"
               ? `Riwayat tugas ${actionModal.categoryName ? `kategori ${actionModal.categoryName} ` : ""}yang telah berhasil kamu selesaikan`
+              : actionModal.type === "date"
+              ? `Semua tugas pada ${actionModal.dateKey ?? ""} (lintas semua kategori)`
               : `Semua tugas dalam daftar ${actionModal.categoryName}`
           }
           icon={
@@ -899,30 +1040,33 @@ function App() {
               : Folder
           }
           defaultCategory={actionModal.categoryName || "Work"}
+          isCategoryLocked={Boolean(actionModal.categoryName)}
+          onMoveTask={
+            actionModal.type === "completed" ? undefined : moveTaskOrder
+          }
           tasks={
             actionModal.type === "today"
-              ? tasks.filter(
+              ? orderedTasks.filter(
                   (t) =>
                     !t.completed &&
                     t.dueDate === today &&
                     (!actionModal.categoryName || t.category === actionModal.categoryName)
                 )
               : actionModal.type === "active"
-              ? tasks.filter(
+              ? orderedTasks.filter(
                   (t) =>
                     !t.completed &&
                     (!actionModal.categoryName || t.category === actionModal.categoryName)
                 )
+              : actionModal.type === "date"
+              ? orderedTasks.filter((t) => t.dueDate === actionModal.dateKey)
               : actionModal.type === "completed"
-              ? tasks.filter(
+              ? orderedTasks.filter(
                   (t) =>
                     t.completed &&
                     (!actionModal.categoryName || t.category === actionModal.categoryName)
                 )
-              : tasks.filter(
-                  (t) =>
-                    !t.completed && t.category === actionModal.categoryName
-                )
+              : orderedTasks.filter((t) => t.category === actionModal.categoryName)
           }
           onToggleTask={toggleTask}
           onOpenTaskDetail={(task) => setDialogTask(task)}
