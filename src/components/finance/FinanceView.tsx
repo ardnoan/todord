@@ -13,6 +13,7 @@ import {
   PiggyBank,
   Play,
   Plus,
+  Power,
   RefreshCw,
   Search,
   Smartphone,
@@ -54,13 +55,14 @@ import {
 } from "../../lib/finance/validation";
 import {
   commitCsvImport,
-  deactivateOrDeleteAccount,
+  deleteAccountPermanently,
   deleteFinanceBudget,
   deleteFinanceCategory,
   deleteFinanceRecurring,
   deleteFinanceTransaction,
   executeRecurringRule,
   fetchFinanceBundle,
+  setAccountActiveStatus,
   upsertFinanceAccount,
   upsertFinanceBudget,
   upsertFinanceCategory,
@@ -713,8 +715,8 @@ export function FinanceView({
                 <div>
                   <h3>Daftar Akun Keuangan</h3>
                   <p className="finance-muted">
-                    Akun yang sudah memiliki transaksi akan dinonaktifkan
-                    (soft-delete) agar riwayat saldo tetap terjaga.
+                    Kelola akun kas, bank, atau e-wallet. Akun yang nonaktif
+                    tetap dapat diubah atau diaktifkan kembali.
                   </p>
                 </div>
                 <button
@@ -780,38 +782,61 @@ export function FinanceView({
                             </button>
                             <button
                               type="button"
-                              className="icon-btn danger"
+                              className="icon-btn"
                               title={
-                                item.transactionCount > 0
+                                item.account.is_active
                                   ? "Nonaktifkan akun"
-                                  : "Hapus akun"
+                                  : "Aktifkan akun"
                               }
                               onClick={() =>
                                 setConfirmAction({
-                                  title:
-                                    item.transactionCount > 0
-                                      ? "Nonaktifkan Akun?"
-                                      : "Hapus Akun?",
-                                  message:
-                                    item.transactionCount > 0
-                                      ? `Akun "${item.account.name}" memiliki ${item.transactionCount} transaksi dan akan dinonaktifkan agar histori tidak hilang.`
-                                      : `Hapus permanen akun "${item.account.name}"?`,
-                                  confirmLabel:
-                                    item.transactionCount > 0
-                                      ? "Nonaktifkan"
-                                      : "Hapus",
+                                  title: item.account.is_active
+                                    ? "Nonaktifkan Akun?"
+                                    : "Aktifkan Akun?",
+                                  message: item.account.is_active
+                                    ? `Nonaktifkan akun "${item.account.name}"? Akun nonaktif tetap bisa diubah atau diaktifkan kembali nanti.`
+                                    : `Aktifkan kembali akun "${item.account.name}"?`,
+                                  confirmLabel: item.account.is_active
+                                    ? "Nonaktifkan"
+                                    : "Aktifkan",
                                   onConfirm: async () => {
-                                    await deactivateOrDeleteAccount(
+                                    const nextActive = !item.account.is_active;
+                                    await setAccountActiveStatus(
                                       userId,
                                       item.account.id,
-                                      item.transactionCount > 0
+                                      nextActive
                                     );
                                     await loadData();
                                     showNotice(
-                                      item.transactionCount > 0
-                                        ? "Akun dinonaktifkan."
-                                        : "Akun dihapus."
+                                      nextActive
+                                        ? "Akun diaktifkan kembali."
+                                        : "Akun dinonaktifkan."
                                     );
+                                  },
+                                })
+                              }
+                            >
+                              <Power size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              className="icon-btn danger"
+                              title="Hapus permanen akun"
+                              onClick={() =>
+                                setConfirmAction({
+                                  title: "Hapus Akun?",
+                                  message:
+                                    item.transactionCount > 0
+                                      ? `Akun "${item.account.name}" memiliki ${item.transactionCount} transaksi. Menghapus akun ini akan ikut menghapus seluruh transaksi dan jadwal berulang terkait secara permanen.`
+                                      : `Hapus permanen akun "${item.account.name}"?`,
+                                  confirmLabel: "Hapus Permanen",
+                                  onConfirm: async () => {
+                                    await deleteAccountPermanently(
+                                      userId,
+                                      item.account.id
+                                    );
+                                    await loadData();
+                                    showNotice("Akun berhasil dihapus.");
                                   },
                                 })
                               }

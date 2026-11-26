@@ -266,6 +266,49 @@ function isValidIsoDate(raw: string): boolean {
   return !Number.isNaN(d.getTime()) && d.toISOString().startsWith(raw.trim());
 }
 
+function hash32(input: string, seed: number): number {
+  let h = seed >>> 0;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  h ^= h >>> 16;
+  h = Math.imul(h, 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
+  return h >>> 0;
+}
+
+function deterministicUuid(table: CsvTableKey, rawId: string): string {
+  const key = `${table}:${rawId}`;
+  const b = new Uint8Array(16);
+  const view = new DataView(b.buffer);
+  view.setUint32(0, hash32(key, 0x811c9dc5));
+  view.setUint32(4, hash32(key, 0x9e3779b9));
+  view.setUint32(8, hash32(key, 0x85ebca6b));
+  view.setUint32(12, hash32(key, 0xc2b2ae35));
+
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+
+  const hex = Array.from(b, (byte) => byte.toString(16).padStart(2, "0")).join(
+    ""
+  );
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
+/**
+ * Resolves an entity ID from CSV: keeps valid UUIDs intact and deterministically
+ * maps legacy numeric/string IDs (e.g. "15", "1002") to stable UUIDs per table.
+ */
+function resolveEntityUuid(table: CsvTableKey, raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (isValidUuid(trimmed)) return trimmed;
+  return deterministicUuid(table, trimmed);
+}
+
 export function prepareCsvImportPreview(params: {
   currentUserId: string;
   csvTexts: Partial<Record<CsvTableKey, string>>;
@@ -309,7 +352,12 @@ export function prepareCsvImportPreview(params: {
     headers: string[]
   ): boolean => {
     const required = CSV_HEADERS[table];
-    const missing = required.filter((col) => !headers.includes(col));
+    const missing = required.filter((col) => {
+      if (table === "accounts" && col === "opening_balance") {
+        return !headers.includes("opening_balance") && !headers.includes("balance");
+      }
+      return !headers.includes(col);
+    });
     if (missing.length > 0) {
       errors.push({
         table,
@@ -323,19 +371,24 @@ export function prepareCsvImportPreview(params: {
   };
 
   const nowIso = new Date().toISOString();
+  const endingBalanceAccountIds = new Set<string>();
 
   // 1. Accounts
   if (csvTexts.accounts && csvTexts.accounts.trim()) {
     const parsed = parseCsvText(csvTexts.accounts);
     if (validateHeaders("accounts", parsed.headers)) {
+      const hasOpeningCol = parsed.headers.includes("opening_balance");
+      const balanceField = hasOpeningCol ? "opening_balance" : "balance";
+
       parsed.rows.forEach((r, idx) => {
         const rowNum = idx + 2;
-        if (!isValidUuid(r.id)) {
+        const accId = resolveEntityUuid("accounts", r.id);
+        if (!accId) {
           errors.push({
             table: "accounts",
             row: rowNum,
             field: "id",
-            message: "UUID id tidak valid.",
+            message: "ID akun wajib diisi.",
           });
           return;
         }
@@ -347,7 +400,7 @@ export function prepareCsvImportPreview(params: {
             message: "Nama akun wajib diisi.",
           });
         }
-        if (!VALID_ACCOUNT_TYPES.includes(r.type as AccountType)) {
+        if (!VALID_ACCOUNT_TYPES.includes(r.type.trim() as AccountType)) {
           errors.push({
             table: "accounts",
             row: rowNum,
@@ -355,13 +408,14 @@ export function prepareCsvImportPreview(params: {
             message: `Tipe akun "${r.type}" tidak valid.`,
           });
         }
-        const opening = parseNumberStrict(r.opening_balance);
+        const rawBal = hasOpeningCol ? r.opening_balance : r.balance;
+        const opening = parseNumberStrict(rawBal);
         if (opening === null) {
           errors.push({
             table: "accounts",
             row: rowNum,
-            field: "opening_balance",
-            message: "opening_balance harus berupa angka.",
+            field: balanceField,
+            message: `${balanceField} harus berupa angka.`,
           });
         }
         const isActive =
@@ -375,15 +429,18 @@ export function prepareCsvImportPreview(params: {
           });
         }
 
-        if (existingAccountIds.has(r.id)) {
-          duplicateIds.accounts.push(r.id);
+        if (existingAccountIds.has(accId)) {
+          duplicateIds.accounts.push(accId);
+        }
+        if (!hasOpeningCol) {
+          endingBalanceAccountIds.add(accId);
         }
 
         payload.accounts.push({
-          id: r.id.trim(),
+          id: accId,
           user_id: currentUserId, // Always remap to logged-in user
           name: r.name.trim(),
-          type: r.type as AccountType,
+          type: r.type.trim() as AccountType,
           opening_balance: opening ?? 0,
           color: r.color.trim() || "#3B82F6",
           icon: r.icon.trim() || "wallet",
@@ -402,12 +459,13 @@ export function prepareCsvImportPreview(params: {
       const rawCats: FinanceCategory[] = [];
       parsed.rows.forEach((r, idx) => {
         const rowNum = idx + 2;
-        if (!isValidUuid(r.id)) {
+        const catId = resolveEntityUuid("categories", r.id);
+        if (!catId) {
           errors.push({
             table: "categories",
             row: rowNum,
             field: "id",
-            message: "UUID id tidak valid.",
+            message: "ID kategori wajib diisi.",
           });
           return;
         }
@@ -419,7 +477,7 @@ export function prepareCsvImportPreview(params: {
             message: "Nama kategori wajib diisi.",
           });
         }
-        if (!VALID_CATEGORY_TYPES.includes(r.type as CategoryType)) {
+        if (!VALID_CATEGORY_TYPES.includes(r.type.trim() as CategoryType)) {
           errors.push({
             table: "categories",
             row: rowNum,
@@ -427,16 +485,8 @@ export function prepareCsvImportPreview(params: {
             message: `Tipe kategori "${r.type}" tidak valid.`,
           });
         }
-        const parentId = r.parent_id.trim() ? r.parent_id.trim() : null;
-        if (parentId && !isValidUuid(parentId)) {
-          errors.push({
-            table: "categories",
-            row: rowNum,
-            field: "parent_id",
-            message: "UUID parent_id tidak valid.",
-          });
-        }
-        if (parentId && parentId === r.id.trim()) {
+        const parentId = resolveEntityUuid("categories", r.parent_id);
+        if (parentId && parentId === catId) {
           errors.push({
             table: "categories",
             row: rowNum,
@@ -445,15 +495,15 @@ export function prepareCsvImportPreview(params: {
           });
         }
 
-        if (existingCategoryIds.has(r.id.trim())) {
-          duplicateIds.categories.push(r.id.trim());
+        if (existingCategoryIds.has(catId)) {
+          duplicateIds.categories.push(catId);
         }
 
         rawCats.push({
-          id: r.id.trim(),
+          id: catId,
           user_id: currentUserId,
           name: r.name.trim(),
-          type: r.type as CategoryType,
+          type: r.type.trim() as CategoryType,
           icon: r.icon.trim() || null,
           color: r.color.trim() || null,
           parent_id: parentId,
@@ -510,16 +560,18 @@ export function prepareCsvImportPreview(params: {
     if (validateHeaders("transactions", parsed.headers)) {
       parsed.rows.forEach((r, idx) => {
         const rowNum = idx + 2;
-        if (!isValidUuid(r.id)) {
+        const txId = resolveEntityUuid("transactions", r.id);
+        if (!txId) {
           errors.push({
             table: "transactions",
             row: rowNum,
             field: "id",
-            message: "UUID id tidak valid.",
+            message: "ID transaksi wajib diisi.",
           });
           return;
         }
-        if (!isValidUuid(r.account_id) || !allAccountIds.has(r.account_id.trim())) {
+        const accountId = resolveEntityUuid("accounts", r.account_id);
+        if (!accountId || !allAccountIds.has(accountId)) {
           errors.push({
             table: "transactions",
             row: rowNum,
@@ -538,18 +590,16 @@ export function prepareCsvImportPreview(params: {
           });
         }
 
-        const transferAccId = r.transfer_account_id.trim()
-          ? r.transfer_account_id.trim()
-          : null;
+        const transferAccId = resolveEntityUuid("accounts", r.transfer_account_id);
         if (txType === "transfer") {
-          if (!transferAccId || !isValidUuid(transferAccId)) {
+          if (!transferAccId) {
             errors.push({
               table: "transactions",
               row: rowNum,
               field: "transfer_account_id",
-              message: "Transfer wajib memiliki transfer_account_id UUID valid.",
+              message: "Transfer wajib memiliki transfer_account_id valid.",
             });
-          } else if (transferAccId === r.account_id.trim()) {
+          } else if (transferAccId === accountId) {
             errors.push({
               table: "transactions",
               row: rowNum,
@@ -561,7 +611,7 @@ export function prepareCsvImportPreview(params: {
               table: "transactions",
               row: rowNum,
               field: "transfer_account_id",
-              message: `transfer_account_id ${transferAccId} tidak ditemukan di akun milik user.`,
+              message: `transfer_account_id ${r.transfer_account_id} tidak ditemukan di akun milik user.`,
             });
           }
         } else if (transferAccId !== null) {
@@ -573,16 +623,14 @@ export function prepareCsvImportPreview(params: {
           });
         }
 
-        const catId = r.category_id.trim() ? r.category_id.trim() : null;
-        if (catId) {
-          if (!isValidUuid(catId) || !allCategoriesMap.has(catId)) {
-            errors.push({
-              table: "transactions",
-              row: rowNum,
-              field: "category_id",
-              message: `category_id ${catId} tidak ditemukan di kategori milik user.`,
-            });
-          }
+        const catId = resolveEntityUuid("categories", r.category_id);
+        if (catId && !allCategoriesMap.has(catId)) {
+          errors.push({
+            table: "transactions",
+            row: rowNum,
+            field: "category_id",
+            message: `category_id ${r.category_id} tidak ditemukan di kategori milik user.`,
+          });
         }
 
         const amt = parseNumberStrict(r.amount);
@@ -630,14 +678,14 @@ export function prepareCsvImportPreview(params: {
           });
         }
 
-        if (existingTxIds.has(r.id.trim())) {
-          duplicateIds.transactions.push(r.id.trim());
+        if (existingTxIds.has(txId)) {
+          duplicateIds.transactions.push(txId);
         }
 
         payload.transactions.push({
-          id: r.id.trim(),
+          id: txId,
           user_id: currentUserId,
-          account_id: r.account_id.trim(),
+          account_id: accountId ?? "",
           transfer_account_id: transferAccId,
           category_id: catId,
           amount: amt ?? 0,
@@ -654,29 +702,80 @@ export function prepareCsvImportPreview(params: {
     }
   }
 
+  // If accounts CSV provided ending `balance` instead of `opening_balance`,
+  // back-calculate opening_balance so running balance equals the CSV `balance`.
+  if (endingBalanceAccountIds.size > 0) {
+    const mergedTxMap = new Map<string, FinanceTransaction>();
+    for (const tx of params.existingTransactions) {
+      mergedTxMap.set(tx.id, tx);
+    }
+    for (const tx of payload.transactions) {
+      mergedTxMap.set(tx.id, tx);
+    }
+
+    const netEffectByAcc = new Map<string, number>();
+    for (const tx of mergedTxMap.values()) {
+      const amt = Number(tx.amount) || 0;
+      if (tx.type === "income") {
+        netEffectByAcc.set(
+          tx.account_id,
+          (netEffectByAcc.get(tx.account_id) ?? 0) + amt
+        );
+      } else if (tx.type === "expense") {
+        netEffectByAcc.set(
+          tx.account_id,
+          (netEffectByAcc.get(tx.account_id) ?? 0) - amt
+        );
+      } else if (tx.type === "transfer") {
+        netEffectByAcc.set(
+          tx.account_id,
+          (netEffectByAcc.get(tx.account_id) ?? 0) - amt
+        );
+        if (tx.transfer_account_id) {
+          netEffectByAcc.set(
+            tx.transfer_account_id,
+            (netEffectByAcc.get(tx.transfer_account_id) ?? 0) + amt
+          );
+        }
+      } else if (tx.type === "adjustment") {
+        netEffectByAcc.set(
+          tx.account_id,
+          (netEffectByAcc.get(tx.account_id) ?? 0) + amt
+        );
+      }
+    }
+    for (const acc of payload.accounts) {
+      if (endingBalanceAccountIds.has(acc.id)) {
+        const net = netEffectByAcc.get(acc.id) ?? 0;
+        acc.opening_balance = Math.round((acc.opening_balance - net) * 100) / 100;
+      }
+    }
+  }
+
   // 4. Budgets
   if (csvTexts.budgets && csvTexts.budgets.trim()) {
     const parsed = parseCsvText(csvTexts.budgets);
     if (validateHeaders("budgets", parsed.headers)) {
       parsed.rows.forEach((r, idx) => {
         const rowNum = idx + 2;
-        if (!isValidUuid(r.id)) {
+        const budgetId = resolveEntityUuid("budgets", r.id);
+        if (!budgetId) {
           errors.push({
             table: "budgets",
             row: rowNum,
             field: "id",
-            message: "UUID id tidak valid.",
+            message: "ID budget wajib diisi.",
           });
           return;
         }
-        const catId = r.category_id.trim();
-        const cat = allCategoriesMap.get(catId);
-        if (!isValidUuid(catId) || !cat) {
+        const catId = resolveEntityUuid("categories", r.category_id);
+        const cat = catId ? allCategoriesMap.get(catId) : undefined;
+        if (!catId || !cat) {
           errors.push({
             table: "budgets",
             row: rowNum,
             field: "category_id",
-            message: `category_id ${catId} tidak ditemukan di kategori milik user.`,
+            message: `category_id ${r.category_id} tidak ditemukan di kategori milik user.`,
           });
         } else if (cat.type !== "expense") {
           errors.push({
@@ -715,14 +814,14 @@ export function prepareCsvImportPreview(params: {
           });
         }
 
-        if (existingBudgetIds.has(r.id.trim())) {
-          duplicateIds.budgets.push(r.id.trim());
+        if (existingBudgetIds.has(budgetId)) {
+          duplicateIds.budgets.push(budgetId);
         }
 
         payload.budgets.push({
-          id: r.id.trim(),
+          id: budgetId,
           user_id: currentUserId,
-          category_id: catId,
+          category_id: catId ?? "",
           limit_amount: limitAmount ?? 0,
           month,
           year,
@@ -739,16 +838,18 @@ export function prepareCsvImportPreview(params: {
     if (validateHeaders("recurring", parsed.headers)) {
       parsed.rows.forEach((r, idx) => {
         const rowNum = idx + 2;
-        if (!isValidUuid(r.id)) {
+        const recId = resolveEntityUuid("recurring", r.id);
+        if (!recId) {
           errors.push({
             table: "recurring",
             row: rowNum,
             field: "id",
-            message: "UUID id tidak valid.",
+            message: "ID transaksi berulang wajib diisi.",
           });
           return;
         }
-        if (!isValidUuid(r.account_id) || !allAccountIds.has(r.account_id.trim())) {
+        const accountId = resolveEntityUuid("accounts", r.account_id);
+        if (!accountId || !allAccountIds.has(accountId)) {
           errors.push({
             table: "recurring",
             row: rowNum,
@@ -756,13 +857,13 @@ export function prepareCsvImportPreview(params: {
             message: `account_id ${r.account_id} tidak ditemukan di akun milik user.`,
           });
         }
-        const catId = r.category_id.trim() ? r.category_id.trim() : null;
-        if (catId && (!isValidUuid(catId) || !allCategoriesMap.has(catId))) {
+        const catId = resolveEntityUuid("categories", r.category_id);
+        if (catId && !allCategoriesMap.has(catId)) {
           errors.push({
             table: "recurring",
             row: rowNum,
             field: "category_id",
-            message: `category_id ${catId} tidak ditemukan di kategori milik user.`,
+            message: `category_id ${r.category_id} tidak ditemukan di kategori milik user.`,
           });
         }
         const amt = parseNumberStrict(r.amount);
@@ -838,14 +939,14 @@ export function prepareCsvImportPreview(params: {
           });
         }
 
-        if (existingRecurringIds.has(r.id.trim())) {
-          duplicateIds.recurring.push(r.id.trim());
+        if (existingRecurringIds.has(recId)) {
+          duplicateIds.recurring.push(recId);
         }
 
         payload.recurring.push({
-          id: r.id.trim(),
+          id: recId,
           user_id: currentUserId,
-          account_id: r.account_id.trim(),
+          account_id: accountId ?? "",
           category_id: catId,
           amount: amt ?? 0,
           type: recType,

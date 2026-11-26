@@ -519,4 +519,93 @@ describe("CSV export & transactional import round-trip", () => {
     expect(preview.duplicateIds.accounts).toContain(ACC_CASH);
     expect(preview.errors.some((e) => e.field === "amount")).toBe(true);
   });
+
+  it("imports legacy CSVs with numeric IDs, ending balance column, and header-only tables", () => {
+    const legacyAccounts = [
+      "id,user_id,name,type,balance,color,icon,is_active,created_at,updated_at",
+      "8,8,BRI BRIMO,bank,3191820.00,#06529d,bi-bank,true,2026-08-09T07:18:24Z,2026-10-02T00:49:52Z",
+      "27,8,Cash ,cash,371500.00,#3B82F6,bi-credit-card,true,2026-11-07T10:52:34Z,2026-11-07T10:52:34Z",
+    ].join("\n");
+
+    const legacyCategories = [
+      "id,user_id,name,type,icon,color,parent_id,created_at,updated_at",
+      "18,,Makanan & Minuman,expense,bi-cup-hot,#EF4444,,2026-08-09T03:56:05Z,2026-08-09T03:56:05Z",
+      "34,,Belanja Groceries,expense,bi-cart3,#DC2626,18,2026-08-09T03:56:05Z,2026-08-09T03:56:05Z",
+    ].join("\n");
+
+    const legacyTransactions = [
+      "id,user_id,account_id,transfer_account_id,category_id,amount,type,transaction_date,title,notes,status,reference_no,created_at,updated_at",
+      "1225,8,27,,18,19000.00,expense,2026-11-07T12:00:00Z,Makan malam,,cleared,,2026-11-07T10:51:53Z,2026-11-07T10:53:34Z",
+      "1226,8,8,27,,500000.00,transfer,2026-11-07T12:00:00Z,Ambil cash,,cleared,,2026-11-07T10:53:07Z,2026-11-07T10:53:07Z",
+      "1227,8,27,,34,49500.00,expense,2026-11-07T12:00:00Z,Laundry ,,cleared,,2026-11-07T10:59:04Z,2026-11-07T10:59:04Z",
+      "1236,8,27,,18,30000.00,expense,2026-11-14T12:00:00Z,nasi padang,,cleared,,2026-11-14T13:58:26Z,2026-11-14T13:58:26Z",
+      "1238,8,27,,34,30000.00,expense,2026-11-15T12:00:00Z,\"beli telur, bawang, cabe\",,cleared,,2026-11-15T11:01:56Z,2026-11-15T11:01:56Z",
+    ].join("\n");
+
+    const emptyBudgets =
+      "id,user_id,category_id,limit_amount,month,year,created_at,updated_at";
+    const emptyRecurring =
+      "id,user_id,account_id,category_id,amount,type,title,frequency,start_date,next_due_date,last_processed_date,is_active,notes,created_at,updated_at";
+
+    const preview = prepareCsvImportPreview({
+      currentUserId: USER_A,
+      csvTexts: {
+        accounts: legacyAccounts,
+        categories: legacyCategories,
+        transactions: legacyTransactions,
+        budgets: emptyBudgets,
+        recurring: emptyRecurring,
+      },
+      existingAccounts: [],
+      existingCategories: [],
+      existingTransactions: [],
+      existingBudgets: [],
+      existingRecurring: [],
+    });
+
+    expect(preview.hasFatalErrors).toBe(false);
+    expect(preview.errors).toEqual([]);
+    expect(preview.counts.accounts).toBe(2);
+    expect(preview.counts.categories).toBe(2);
+    expect(preview.counts.transactions).toBe(5);
+    expect(preview.counts.budgets).toBe(0);
+    expect(preview.counts.recurring).toBe(0);
+
+    // Balances computed from back-calculated opening_balance + transactions must match CSV `balance`
+    const balances = calculateAllAccountBalances(
+      preview.payload.accounts,
+      preview.payload.transactions
+    );
+    const cash = balances.find((b) => b.account.name === "Cash");
+    const bri = balances.find((b) => b.account.name === "BRI BRIMO");
+    expect(cash?.account.opening_balance).toBe(0);
+    expect(cash?.currentBalance).toBe(371500);
+    expect(bri?.currentBalance).toBe(3191820);
+
+    // Re-importing accounts CSV alone when transactions already exist in DB
+    // must still back-calculate opening_balance against existingTransactions
+    const reimportAccountsOnly = prepareCsvImportPreview({
+      currentUserId: USER_A,
+      csvTexts: {
+        accounts: legacyAccounts,
+      },
+      existingAccounts: preview.payload.accounts,
+      existingCategories: preview.payload.categories,
+      existingTransactions: preview.payload.transactions,
+      existingBudgets: [],
+      existingRecurring: [],
+    });
+    expect(reimportAccountsOnly.hasDuplicates).toBe(true);
+    expect(reimportAccountsOnly.duplicateIds.accounts).toHaveLength(2);
+    const reimportBalances = calculateAllAccountBalances(
+      reimportAccountsOnly.payload.accounts,
+      preview.payload.transactions
+    );
+    expect(
+      reimportBalances.find((b) => b.account.name === "Cash")?.currentBalance
+    ).toBe(371500);
+    expect(
+      reimportBalances.find((b) => b.account.name === "BRI BRIMO")?.currentBalance
+    ).toBe(3191820);
+  });
 });

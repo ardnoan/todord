@@ -156,6 +156,47 @@ export async function deactivateOrDeleteAccount(
   return { mode: "deleted" };
 }
 
+export async function setAccountActiveStatus(
+  userId: string,
+  accountId: string,
+  isActive: boolean
+): Promise<void> {
+  const client = requireSupabase();
+  const { error } = await client
+    .from("finance_accounts")
+    .update({ is_active: isActive })
+    .eq("id", accountId)
+    .eq("user_id", userId);
+  if (error) throw error;
+}
+
+export async function deleteAccountPermanently(
+  userId: string,
+  accountId: string
+): Promise<void> {
+  const client = requireSupabase();
+  const { error: recErr } = await client
+    .from("finance_recurring_transactions")
+    .delete()
+    .eq("user_id", userId)
+    .eq("account_id", accountId);
+  if (recErr) throw recErr;
+
+  const { error: txErr } = await client
+    .from("finance_transactions")
+    .delete()
+    .eq("user_id", userId)
+    .or(`account_id.eq.${accountId},transfer_account_id.eq.${accountId}`);
+  if (txErr) throw txErr;
+
+  const { error: accErr } = await client
+    .from("finance_accounts")
+    .delete()
+    .eq("id", accountId)
+    .eq("user_id", userId);
+  if (accErr) throw accErr;
+}
+
 export async function upsertFinanceCategory(
   userId: string,
   input: {
