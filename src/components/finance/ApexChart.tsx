@@ -12,6 +12,16 @@ import {
   YAxis,
 } from "recharts";
 
+function formatTooltipValue(
+  value: number | string | ReadonlyArray<number | string> | undefined,
+  name: number | string | undefined,
+  formatValue?: (val: number) => string
+): [string | number, string] {
+  const num = typeof value === "number" ? value : Number(value ?? 0);
+  const safeNum = Number.isFinite(num) ? num : 0;
+  return [formatValue ? formatValue(safeNum) : safeNum, String(name ?? "")];
+}
+
 // ─── Bar Chart ────────────────────────────────────────────────────────────────
 
 export interface BarSeries {
@@ -59,10 +69,7 @@ export function AppBarChart({
           width={72}
         />
         <Tooltip
-          formatter={(value: number, name: string) => [
-            formatValue ? formatValue(value) : value,
-            name,
-          ]}
+          formatter={(value, name) => formatTooltipValue(value, name, formatValue)}
           contentStyle={{
             borderRadius: 8,
             border: "1px solid var(--border, #e5e7eb)",
@@ -113,7 +120,7 @@ export function AppDonutChart({
           innerRadius="52%"
           outerRadius="72%"
           paddingAngle={2}
-          label={({ percent }) => `${(percent * 100).toFixed(1)}%`}
+          label={({ percent }) => `${((percent ?? 0) * 100).toFixed(1)}%`}
           labelLine={false}
         >
           {slices.map((s, idx) => (
@@ -121,10 +128,7 @@ export function AppDonutChart({
           ))}
         </Pie>
         <Tooltip
-          formatter={(value: number, name: string) => [
-            formatValue ? formatValue(value) : value,
-            name,
-          ]}
+          formatter={(value, name) => formatTooltipValue(value, name, formatValue)}
           contentStyle={{
             borderRadius: 8,
             border: "1px solid var(--border, #e5e7eb)",
