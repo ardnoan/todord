@@ -69,7 +69,7 @@ import {
   upsertFinanceRecurring,
   upsertFinanceTransaction,
 } from "../../services/financeService";
-import { ApexChart } from "./ApexChart";
+import { AppBarChart, AppDonutChart } from "./ApexChart";
 import { CurrencyInput } from "./CurrencyInput";
 import { FinanceCsvTab } from "./FinanceCsvTab";
 
@@ -1391,44 +1391,15 @@ export function FinanceView({
             <div className="finance-stack">
               <div className="finance-card">
                 <h3>Ringkasan Bulanan ({selectedYear})</h3>
-                <ApexChart
-                  type="bar"
-                  height={280}
-                  series={[
-                    {
-                      name: "Pemasukan",
-                      data: monthlyReport.map((r) => r.income),
-                    },
-                    {
-                      name: "Pengeluaran",
-                      data: monthlyReport.map((r) => r.expense),
-                    },
-                  ]}
-                  options={{
-                    colors: ["#16a34a", "#dc2626"],
-                    plotOptions: {
-                      bar: {
-                        borderRadius: 6,
-                        columnWidth: "52%",
-                      },
-                    },
-                    dataLabels: { enabled: false },
-                    xaxis: {
-                      categories: monthlyReport.map((r) => r.label),
-                    },
-                    yaxis: {
-                      labels: {
-                        formatter: (val) => fmt(val),
-                      },
-                    },
-                    tooltip: {
-                      y: {
-                        formatter: (val) => fmt(val ?? 0),
-                      },
-                    },
-                    legend: { position: "top" },
-                  }}
-                />
+                <AppBarChart
+                    height={280}
+                    categories={monthlyReport.map((r) => r.label)}
+                    series={[
+                      { name: "Pemasukan", data: monthlyReport.map((r) => r.income), color: "#16a34a" },
+                      { name: "Pengeluaran", data: monthlyReport.map((r) => r.expense), color: "#dc2626" },
+                    ]}
+                    formatValue={(val) => fmt(val)}
+                  />
                 <div className="finance-table-wrap">
                   <table className="finance-table">
                     <thead>
@@ -1481,49 +1452,16 @@ export function FinanceView({
                     </div>
                   ) : (
                     <>
-                      <ApexChart
-                        type="donut"
-                        height={260}
-                        series={expenseCategoryReport.map((i) => i.total)}
-                        options={{
-                          labels: expenseCategoryReport.map(
-                            (i) => `${i.categoryName} (${i.count}x)`
-                          ),
-                          colors: expenseCategoryReport.map((i) => i.color),
-                          legend: { position: "bottom" },
-                          dataLabels: {
-                            enabled: true,
-                            formatter: (val) =>
-                              `${Number(val).toFixed(1)}%`,
-                          },
-                          tooltip: {
-                            y: {
-                              formatter: (val) => fmt(val ?? 0),
-                            },
-                          },
-                          plotOptions: {
-                            pie: {
-                              donut: {
-                                size: "65%",
-                                labels: {
-                                  show: true,
-                                  total: {
-                                    show: true,
-                                    label: "Total",
-                                    formatter: () =>
-                                      fmt(
-                                        expenseCategoryReport.reduce(
-                                          (s, i) => s + i.total,
-                                          0
-                                        )
-                                      ),
-                                  },
-                                },
-                              },
-                            },
-                          },
-                        }}
-                      />
+                      <AppDonutChart
+                          height={260}
+                          slices={expenseCategoryReport.map((i) => ({
+                            name: `${i.categoryName} (${i.count}x)`,
+                            value: i.total,
+                            color: i.color,
+                          }))}
+                          totalLabel="Total"
+                          formatValue={(val) => fmt(val)}
+                        />
                       <div className="finance-report-list">
                         {expenseCategoryReport.map((item) => (
                           <div
@@ -1558,49 +1496,16 @@ export function FinanceView({
                     </div>
                   ) : (
                     <>
-                      <ApexChart
-                        type="donut"
-                        height={260}
-                        series={incomeCategoryReport.map((i) => i.total)}
-                        options={{
-                          labels: incomeCategoryReport.map(
-                            (i) => `${i.categoryName} (${i.count}x)`
-                          ),
-                          colors: incomeCategoryReport.map((i) => i.color),
-                          legend: { position: "bottom" },
-                          dataLabels: {
-                            enabled: true,
-                            formatter: (val) =>
-                              `${Number(val).toFixed(1)}%`,
-                          },
-                          tooltip: {
-                            y: {
-                              formatter: (val) => fmt(val ?? 0),
-                            },
-                          },
-                          plotOptions: {
-                            pie: {
-                              donut: {
-                                size: "65%",
-                                labels: {
-                                  show: true,
-                                  total: {
-                                    show: true,
-                                    label: "Total",
-                                    formatter: () =>
-                                      fmt(
-                                        incomeCategoryReport.reduce(
-                                          (s, i) => s + i.total,
-                                          0
-                                        )
-                                      ),
-                                  },
-                                },
-                              },
-                            },
-                          },
-                        }}
-                      />
+                      <AppDonutChart
+                          height={260}
+                          slices={incomeCategoryReport.map((i) => ({
+                            name: `${i.categoryName} (${i.count}x)`,
+                            value: i.total,
+                            color: i.color,
+                          }))}
+                          totalLabel="Total"
+                          formatValue={(val) => fmt(val)}
+                        />
                       <div className="finance-report-list">
                         {incomeCategoryReport.map((item) => (
                           <div
