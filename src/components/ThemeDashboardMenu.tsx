@@ -8,8 +8,6 @@ import {
   Check,
   X,
   RotateCcw,
-  Sparkles,
-  Calendar,
   Quote,
   Eye,
   SlidersHorizontal,
@@ -22,8 +20,6 @@ interface ThemeDashboardMenuProps {
   preferences: ThemePreferences;
   onSelectTheme: (theme: ThemeId) => void;
   onSelectLayout: (layout: LayoutMode) => void;
-  onToggleStats: () => void;
-  onToggleWeekStrip: () => void;
   onToggleMotto: () => void;
   onReset: () => void;
 }
@@ -104,8 +100,6 @@ export function ThemeDashboardMenu({
   preferences,
   onSelectTheme,
   onSelectLayout,
-  onToggleStats,
-  onToggleWeekStrip,
   onToggleMotto,
   onReset,
 }: ThemeDashboardMenuProps) {
@@ -248,42 +242,10 @@ export function ThemeDashboardMenu({
                 <div className="widget-toggle-list">
                   <label className="widget-toggle-item">
                     <div className="widget-toggle-info">
-                      <Sparkles size={14} />
-                      <div>
-                        <strong>Kartu Ringkasan Statistik</strong>
-                        <small>Fokus Hari Ini, Selesai, dan Daftar Aktif</small>
-                      </div>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={preferences.showStats}
-                      onChange={onToggleStats}
-                      aria-label="Tampilkan statistik"
-                    />
-                  </label>
-
-                  <label className="widget-toggle-item">
-                    <div className="widget-toggle-info">
-                      <Calendar size={14} />
-                      <div>
-                        <strong>Strip Kalender Mingguan</strong>
-                        <small>Navigasi cepat tanggal dalam minggu</small>
-                      </div>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={preferences.showWeekStrip}
-                      onChange={onToggleWeekStrip}
-                      aria-label="Tampilkan kalender mingguan"
-                    />
-                  </label>
-
-                  <label className="widget-toggle-item">
-                    <div className="widget-toggle-info">
                       <Quote size={14} />
                       <div>
                         <strong>Motto & Kutipan Tenang</strong>
-                        <small>Pesan di sidebar dan footer untuk fokus</small>
+                        <small>Pesan di footer untuk fokus</small>
                       </div>
                     </div>
                     <input

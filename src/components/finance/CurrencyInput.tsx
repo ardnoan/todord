@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 /**
  * Formats a numeric value or raw string into Indonesian thousand-delimited format
@@ -23,7 +23,9 @@ export function formatIdrNumber(
   const parts = normalized.split(",");
   const intDigits = parts[0].replace(/\D/g, "");
   const decDigits =
-    parts.length > 1 ? parts.slice(1).join("").replace(/\D/g, "").slice(0, 2) : null;
+    parts.length > 1
+      ? parts.slice(1).join("").replace(/\D/g, "").slice(0, 2)
+      : null;
 
   if (!intDigits && decDigits === null) {
     return isNegative ? "-" : "";
@@ -34,7 +36,9 @@ export function formatIdrNumber(
     : "0";
 
   const prefix = isNegative ? "-" : "";
-  return decDigits !== null ? `${prefix}${formattedInt},${decDigits}` : `${prefix}${formattedInt}`;
+  return decDigits !== null
+    ? `${prefix}${formattedInt},${decDigits}`
+    : `${prefix}${formattedInt}`;
 }
 
 /**
@@ -60,6 +64,12 @@ interface CurrencyInputProps {
   min?: number;
 }
 
+function formatPropValue(value: string, allowNegative: boolean): string {
+  if (value === "" || value === "-") return value;
+  const num = Number(value);
+  return Number.isFinite(num) ? formatIdrNumber(num, allowNegative) : "";
+}
+
 export function CurrencyInput({
   value,
   onChangeValue,
@@ -67,36 +77,27 @@ export function CurrencyInput({
   placeholder = "0",
   required = false,
 }: CurrencyInputProps) {
-  const [display, setDisplay] = useState<string>(() => {
-    if (!value) return "";
-    const num = Number(value);
-    return Number.isFinite(num) ? formatIdrNumber(num, allowNegative) : "";
-  });
+  const [editingText, setEditingText] = useState<string | null>(null);
+  const display =
+    editingText !== null ? editingText : formatPropValue(value, allowNegative);
 
-  useEffect(() => {
-    if (value === "" || value === "-") {
-      setDisplay(value);
-      return;
-    }
-    const parsedCurrent = parseIdrNumber(display);
-    const parsedProp = Number(value);
-    if (
-      Number.isFinite(parsedProp) &&
-      parsedCurrent !== parsedProp
-    ) {
-      setDisplay(formatIdrNumber(parsedProp, allowNegative));
-    }
-  }, [value, allowNegative]);
+  function handleFocus() {
+    setEditingText(formatPropValue(value, allowNegative));
+  }
+
+  function handleBlur() {
+    setEditingText(null);
+  }
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     const raw = e.target.value;
     if (raw === "") {
-      setDisplay("");
+      setEditingText("");
       onChangeValue("");
       return;
     }
     if (allowNegative && raw === "-") {
-      setDisplay("-");
+      setEditingText("-");
       onChangeValue("");
       return;
     }
@@ -105,17 +106,19 @@ export function CurrencyInput({
     const isNeg = allowNegative && raw.startsWith("-");
     const stripped = raw.replace(/^-/, "").replace(/\./g, "");
     const commaIdx = stripped.indexOf(",");
-    let clean = "";
-    if (commaIdx >= 0) {
-      const intPart = stripped.slice(0, commaIdx).replace(/\D/g, "");
-      const decPart = stripped.slice(commaIdx + 1).replace(/\D/g, "").slice(0, 2);
-      clean = `${intPart || "0"},${decPart}`;
-    } else {
-      clean = stripped.replace(/\D/g, "");
-    }
+    const clean =
+      commaIdx >= 0
+        ? `${stripped.slice(0, commaIdx).replace(/\D/g, "") || "0"},${stripped
+            .slice(commaIdx + 1)
+            .replace(/\D/g, "")
+            .slice(0, 2)}`
+        : stripped.replace(/\D/g, "");
 
-    const formatted = formatIdrNumber(`${isNeg ? "-" : ""}${clean}`, allowNegative);
-    setDisplay(formatted);
+    const formatted = formatIdrNumber(
+      `${isNeg ? "-" : ""}${clean}`,
+      allowNegative
+    );
+    setEditingText(formatted);
 
     const parsed = parseIdrNumber(formatted);
     onChangeValue(Number.isFinite(parsed) ? String(parsed) : "");
@@ -128,6 +131,8 @@ export function CurrencyInput({
         type="text"
         inputMode={allowNegative ? "text" : "numeric"}
         value={display}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
         onChange={handleChange}
         placeholder={placeholder}
         required={required}

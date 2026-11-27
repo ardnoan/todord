@@ -11,6 +11,7 @@ import {
   exportFinanceCsvBundle,
   prepareCsvImportPreview,
 } from "../../lib/finance/csv";
+import { fetchAllFinanceTransactions } from "../../services/financeService";
 import type {
   CsvImportPreview,
   CsvTableKey,
@@ -18,14 +19,12 @@ import type {
   FinanceBudget,
   FinanceCategory,
   FinanceRecurringTransaction,
-  FinanceTransaction,
 } from "../../lib/finance/types";
 
 interface FinanceCsvTabProps {
   userId: string;
   accounts: FinanceAccount[];
   categories: FinanceCategory[];
-  transactions: FinanceTransaction[];
   budgets: FinanceBudget[];
   recurring: FinanceRecurringTransaction[];
   onCommitImport: (
@@ -67,48 +66,73 @@ export function FinanceCsvTab({
   userId,
   accounts,
   categories,
-  transactions,
   budgets,
   recurring,
   onCommitImport,
 }: FinanceCsvTabProps) {
-  const [csvTexts, setCsvTexts] = useState<Partial<Record<CsvTableKey, string>>>(
-    {}
-  );
+  const [csvTexts, setCsvTexts] = useState<
+    Partial<Record<CsvTableKey, string>>
+  >({});
   const [fileNames, setFileNames] = useState<
     Partial<Record<CsvTableKey, string>>
   >({});
   const [preview, setPreview] = useState<CsvImportPreview | null>(null);
   const [allowUpsert, setAllowUpsert] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
 
-  function handleExportOne(table: CsvTableKey) {
-    const bundle = exportFinanceCsvBundle({
-      currentUserId: userId,
-      accounts,
-      categories,
-      transactions,
-      budgets,
-      recurring,
-    });
-    downloadCsvFile(CSV_FILENAMES[table], bundle[table]);
+  async function handleExportOne(table: CsvTableKey) {
+    setExporting(true);
+    setErrorMessage("");
+    try {
+      const allTransactions =
+        table === "transactions"
+          ? await fetchAllFinanceTransactions(userId)
+          : [];
+      const bundle = exportFinanceCsvBundle({
+        currentUserId: userId,
+        accounts,
+        categories,
+        transactions: allTransactions,
+        budgets,
+        recurring,
+      });
+      downloadCsvFile(CSV_FILENAMES[table], bundle[table]);
+    } catch (err) {
+      setErrorMessage(
+        err instanceof Error ? err.message : "Gagal mengekspor CSV."
+      );
+    } finally {
+      setExporting(false);
+    }
   }
 
-  function handleExportAll() {
-    const bundle = exportFinanceCsvBundle({
-      currentUserId: userId,
-      accounts,
-      categories,
-      transactions,
-      budgets,
-      recurring,
-    });
-    TABLE_ORDER.forEach((key) => {
-      downloadCsvFile(CSV_FILENAMES[key], bundle[key]);
-    });
-    setStatusMessage("Semua 5 file CSV berhasil diekspor (UTF-8).");
+  async function handleExportAll() {
+    setExporting(true);
+    setErrorMessage("");
+    try {
+      const allTransactions = await fetchAllFinanceTransactions(userId);
+      const bundle = exportFinanceCsvBundle({
+        currentUserId: userId,
+        accounts,
+        categories,
+        transactions: allTransactions,
+        budgets,
+        recurring,
+      });
+      TABLE_ORDER.forEach((key) => {
+        downloadCsvFile(CSV_FILENAMES[key], bundle[key]);
+      });
+      setStatusMessage("Semua 5 file CSV berhasil diekspor (UTF-8).");
+    } catch (err) {
+      setErrorMessage(
+        err instanceof Error ? err.message : "Gagal mengekspor CSV."
+      );
+    } finally {
+      setExporting(false);
+    }
   }
 
   async function handleFileSelect(
@@ -125,20 +149,29 @@ export function FinanceCsvTab({
     setErrorMessage("");
   }
 
-  function handlePreview() {
+  async function handlePreview() {
     setErrorMessage("");
     setStatusMessage("");
-    const result = prepareCsvImportPreview({
-      currentUserId: userId,
-      csvTexts,
-      existingAccounts: accounts,
-      existingCategories: categories,
-      existingTransactions: transactions,
-      existingBudgets: budgets,
-      existingRecurring: recurring,
-    });
-    setPreview(result);
-    setAllowUpsert(false);
+    try {
+      const existingTransactions = csvTexts.transactions?.trim()
+        ? await fetchAllFinanceTransactions(userId)
+        : [];
+      const result = prepareCsvImportPreview({
+        currentUserId: userId,
+        csvTexts,
+        existingAccounts: accounts,
+        existingCategories: categories,
+        existingTransactions,
+        existingBudgets: budgets,
+        existingRecurring: recurring,
+      });
+      setPreview(result);
+      setAllowUpsert(false);
+    } catch (err) {
+      setErrorMessage(
+        err instanceof Error ? err.message : "Gagal memvalidasi pratinjau CSV."
+      );
+    }
   }
 
   async function handleCommit() {
@@ -197,8 +230,10 @@ export function FinanceCsvTab({
             type="button"
             className="button-primary"
             onClick={handleExportAll}
+            disabled={exporting}
           >
-            <Download size={15} /> Ekspor Semua (5 CSV)
+            <Download size={15} />{" "}
+            {exporting ? "Mengekspor..." : "Ekspor Semua (5 CSV)"}
           </button>
         </div>
 
@@ -209,6 +244,7 @@ export function FinanceCsvTab({
               type="button"
               className="csv-export-item"
               onClick={() => handleExportOne(table)}
+              disabled={exporting}
             >
               <FileSpreadsheet size={16} />
               <span>{CSV_FILENAMES[table]}</span>

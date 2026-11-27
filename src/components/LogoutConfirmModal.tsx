@@ -1,6 +1,7 @@
-import { useEffect } from "react";
+import { useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { LogOut, X, ShieldCheck } from "lucide-react";
+import { useDialogA11y } from "../hooks/useDialogA11y";
 
 interface LogoutConfirmModalProps {
   isOpen: boolean;
@@ -17,21 +18,24 @@ export function LogoutConfirmModal({
   onConfirm,
   isLoggingOut,
 }: LogoutConfirmModalProps) {
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape" && isOpen && !isLoggingOut) {
-        onCancel();
-      }
-    }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onCancel, isLoggingOut]);
+  const cardRef = useRef<HTMLDivElement>(null);
+  useDialogA11y(
+    isOpen,
+    () => {
+      if (!isLoggingOut) onCancel();
+    },
+    cardRef
+  );
 
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="modal-backdrop logout-modal-backdrop" onClick={onCancel}>
+        <div
+          className="modal-backdrop logout-modal-backdrop"
+          onClick={onCancel}
+        >
           <motion.div
+            ref={cardRef}
             className="logout-modal-card"
             initial={{ opacity: 0, scale: 0.94, y: 15 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}

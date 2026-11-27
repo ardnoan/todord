@@ -150,11 +150,7 @@ export interface AppParameterSettings {
 }
 
 export type CsvTableKey =
-  | "accounts"
-  | "categories"
-  | "transactions"
-  | "budgets"
-  | "recurring";
+  "accounts" | "categories" | "transactions" | "budgets" | "recurring";
 
 export interface CsvValidationError {
   table: CsvTableKey;

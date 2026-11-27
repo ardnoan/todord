@@ -25,7 +25,8 @@ export type StickyNote = {
   createdAt: number;
 };
 
-export type ActionModalType = "today" | "active" | "completed" | "category" | "date" | null;
+export type ActionModalType =
+  "today" | "overdue" | "active" | "completed" | "category" | "date" | null;
 
 export type Task = {
   id: string;
@@ -52,8 +53,6 @@ export type LayoutMode = "list" | "grid" | "compact";
 export type ThemePreferences = {
   theme: ThemeId;
   layout: LayoutMode;
-  showStats: boolean;
-  showWeekStrip: boolean;
   showMotto: boolean;
 };
 
@@ -320,6 +319,81 @@ export type Database = {
         };
         Relationships: [];
       };
+      sticky_notes: {
+        Row: {
+          id: string;
+          user_id: string;
+          title: string;
+          content: string;
+          color: NoteColor;
+          pinned: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id?: string;
+          title?: string;
+          content?: string;
+          color?: NoteColor;
+          pinned?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          title?: string;
+          content?: string;
+          color?: NoteColor;
+          pinned?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      user_preferences: {
+        Row: {
+          user_id: string;
+          theme_preferences: Json;
+          task_order: Json;
+          updated_at: string;
+        };
+        Insert: {
+          user_id?: string;
+          theme_preferences?: Json;
+          task_order?: Json;
+          updated_at?: string;
+        };
+        Update: {
+          user_id?: string;
+          theme_preferences?: Json;
+          task_order?: Json;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      app_parameters: {
+        Row: {
+          id: number;
+          settings: Json;
+          updated_by: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          id?: number;
+          settings: Json;
+          updated_by?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          id?: number;
+          settings?: Json;
+          updated_by?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -336,6 +410,73 @@ export type Database = {
           p_upsert?: boolean;
         };
         Returns: Json;
+      };
+      delete_finance_account: {
+        Args: {
+          p_account_id: string;
+        };
+        Returns: undefined;
+      };
+      get_finance_account_balances: {
+        Args: Record<string, never>;
+        Returns: Array<{
+          account_id: string;
+          opening_balance: number;
+          total_inflow: number;
+          total_outflow: number;
+          current_balance: number;
+          transaction_count: number;
+        }>;
+      };
+      get_finance_period_summary: {
+        Args: {
+          p_month: number;
+          p_year: number;
+        };
+        Returns: Array<{
+          total_income: number;
+          total_expense: number;
+          net_cashflow: number;
+          transfer_volume: number;
+          adjustment_net: number;
+          transaction_count: number;
+        }>;
+      };
+      get_finance_monthly_report: {
+        Args: {
+          p_year: number;
+        };
+        Returns: Array<{
+          month: number;
+          income: number;
+          expense: number;
+          net: number;
+        }>;
+      };
+      get_finance_category_report: {
+        Args: {
+          p_type: string;
+          p_month?: number;
+          p_year?: number;
+        };
+        Returns: Array<{
+          category_id: string | null;
+          category_name: string;
+          type: string;
+          total: number;
+          count: number;
+          color: string;
+        }>;
+      };
+      get_finance_budget_spent: {
+        Args: {
+          p_month: number;
+          p_year: number;
+        };
+        Returns: Array<{
+          category_id: string;
+          spent_amount: number;
+        }>;
       };
     };
     Enums: Record<string, never>;

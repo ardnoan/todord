@@ -7,10 +7,7 @@ import {
   calculatePeriodSummary,
   calculateTotalNetBalance,
 } from "../calculations";
-import {
-  exportFinanceCsvBundle,
-  prepareCsvImportPreview,
-} from "../csv";
+import { exportFinanceCsvBundle, prepareCsvImportPreview } from "../csv";
 import { advanceNextDueDate, executeRecurringLocally } from "../recurring";
 import type {
   FinanceAccount,
@@ -154,7 +151,9 @@ describe("Finance balance, transfer & adjustment calculations", () => {
     // Inactive account retains its opening_balance + history
     expect(calculateAccountBalance(inactive, txs)).toBe(50_000);
     // Total net balance excludes inactive accounts by default
-    expect(calculateTotalNetBalance([cash, bank, inactive], txs)).toBe(1_570_000);
+    expect(calculateTotalNetBalance([cash, bank, inactive], txs)).toBe(
+      1_570_000
+    );
 
     const period = calculatePeriodSummary(txs, 11, 2026);
     expect(period.totalIncome).toBe(1_000_000);
@@ -354,6 +353,19 @@ describe("Idempotent recurring execution", () => {
     // Yearly date advance
     expect(advanceNextDueDate("2024-02-29", "yearly")).toBe("2025-02-28");
   });
+
+  it("anchors monthly recurring dates to start_date day without drifting (31 Jan -> 28 Feb -> 31 Mar)", () => {
+    const feb = advanceNextDueDate("2026-01-31", "monthly", 31);
+    expect(feb).toBe("2026-02-28");
+    const mar = advanceNextDueDate(feb, "monthly", 31);
+    expect(mar).toBe("2026-03-31");
+
+    // Leap year check: 2024-01-31 -> 2024-02-29 -> 2024-03-31
+    const leapFeb = advanceNextDueDate("2024-01-31", "monthly", 31);
+    expect(leapFeb).toBe("2024-02-29");
+    const leapMar = advanceNextDueDate(leapFeb, "monthly", 31);
+    expect(leapMar).toBe("2024-03-31");
+  });
 });
 
 describe("CSV export & transactional import round-trip", () => {
@@ -472,9 +484,7 @@ describe("CSV export & transactional import round-trip", () => {
     expect(preview.payload.accounts.every((a) => a.user_id === USER_B)).toBe(
       true
     );
-    expect(
-      preview.payload.transactions[0].notes
-    ).toBe("Catatan, dengan koma");
+    expect(preview.payload.transactions[0].notes).toBe("Catatan, dengan koma");
 
     // Two-pass category order: parent_id === null comes first
     expect(preview.payload.categories[0].parent_id).toBeNull();
@@ -539,7 +549,7 @@ describe("CSV export & transactional import round-trip", () => {
       "1226,8,8,27,,500000.00,transfer,2026-11-07T12:00:00Z,Ambil cash,,cleared,,2026-11-07T10:53:07Z,2026-11-07T10:53:07Z",
       "1227,8,27,,34,49500.00,expense,2026-11-07T12:00:00Z,Laundry ,,cleared,,2026-11-07T10:59:04Z,2026-11-07T10:59:04Z",
       "1236,8,27,,18,30000.00,expense,2026-11-14T12:00:00Z,nasi padang,,cleared,,2026-11-14T13:58:26Z,2026-11-14T13:58:26Z",
-      "1238,8,27,,34,30000.00,expense,2026-11-15T12:00:00Z,\"beli telur, bawang, cabe\",,cleared,,2026-11-15T11:01:56Z,2026-11-15T11:01:56Z",
+      '1238,8,27,,34,30000.00,expense,2026-11-15T12:00:00Z,"beli telur, bawang, cabe",,cleared,,2026-11-15T11:01:56Z,2026-11-15T11:01:56Z',
     ].join("\n");
 
     const emptyBudgets =
@@ -605,7 +615,8 @@ describe("CSV export & transactional import round-trip", () => {
       reimportBalances.find((b) => b.account.name === "Cash")?.currentBalance
     ).toBe(371500);
     expect(
-      reimportBalances.find((b) => b.account.name === "BRI BRIMO")?.currentBalance
+      reimportBalances.find((b) => b.account.name === "BRI BRIMO")
+        ?.currentBalance
     ).toBe(3191820);
   });
 });

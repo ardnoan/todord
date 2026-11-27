@@ -53,8 +53,15 @@ export function AppBarChart({
 
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <BarChart data={chartData} margin={{ top: 8, right: 8, left: 8, bottom: 4 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="var(--border, #e5e7eb)" vertical={false} />
+      <BarChart
+        data={chartData}
+        margin={{ top: 8, right: 8, left: 8, bottom: 4 }}
+      >
+        <CartesianGrid
+          strokeDasharray="3 3"
+          stroke="var(--border-color, #e5e7eb)"
+          vertical={false}
+        />
         <XAxis
           dataKey="label"
           tick={{ fontSize: 11, fill: "var(--text-muted, #6b7280)" }}
@@ -69,16 +76,28 @@ export function AppBarChart({
           width={72}
         />
         <Tooltip
-          formatter={(value, name) => formatTooltipValue(value, name, formatValue)}
+          formatter={(value, name) =>
+            formatTooltipValue(value, name, formatValue)
+          }
           contentStyle={{
+            backgroundColor: "var(--surface-bg, #ffffff)",
+            color: "var(--text-primary, #111827)",
             borderRadius: 8,
-            border: "1px solid var(--border, #e5e7eb)",
+            border: "1px solid var(--border-color, #e5e7eb)",
             fontSize: 12,
           }}
+          itemStyle={{ color: "var(--text-primary, #111827)" }}
+          labelStyle={{ color: "var(--text-muted, #6b7280)" }}
         />
         <Legend wrapperStyle={{ fontSize: 12 }} />
         {series.map((s) => (
-          <Bar key={s.name} dataKey={s.name} fill={s.color} radius={[4, 4, 0, 0]} maxBarSize={36} />
+          <Bar
+            key={s.name}
+            dataKey={s.name}
+            fill={s.color}
+            radius={[4, 4, 0, 0]}
+            maxBarSize={36}
+          />
         ))}
       </BarChart>
     </ResponsiveContainer>
@@ -128,38 +147,47 @@ export function AppDonutChart({
           ))}
         </Pie>
         <Tooltip
-          formatter={(value, name) => formatTooltipValue(value, name, formatValue)}
+          formatter={(value, name) =>
+            formatTooltipValue(value, name, formatValue)
+          }
           contentStyle={{
+            backgroundColor: "var(--surface-bg, #ffffff)",
+            color: "var(--text-primary, #111827)",
             borderRadius: 8,
-            border: "1px solid var(--border, #e5e7eb)",
+            border: "1px solid var(--border-color, #e5e7eb)",
             fontSize: 12,
           }}
+          itemStyle={{ color: "var(--text-primary, #111827)" }}
+          labelStyle={{ color: "var(--text-muted, #6b7280)" }}
         />
         <Legend
           wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
-          formatter={(value) => <span style={{ color: "var(--text-muted, #6b7280)" }}>{value}</span>}
+          formatter={(value) => (
+            <span style={{ color: "var(--text-muted, #6b7280)" }}>{value}</span>
+          )}
         />
-        {/* Center label */}
-        <text
-          x="50%"
-          y="45%"
-          textAnchor="middle"
-          dominantBaseline="middle"
-          style={{ fontSize: 11, fill: "var(--text-muted, #6b7280)" }}
-        >
-          {totalLabel}
-        </text>
-        <text
-          x="50%"
-          y="calc(45% + 18px)"
-          textAnchor="middle"
-          dominantBaseline="middle"
-          style={{ fontSize: 12, fontWeight: 600, fill: "var(--text, #111827)" }}
-        >
-          {formatValue ? formatValue(total) : total}
+        {/* Center label using <tspan> with dy so SVG positioning is valid */}
+        <text x="50%" y="45%" textAnchor="middle" dominantBaseline="central">
+          <tspan
+            x="50%"
+            dy="-0.55em"
+            style={{ fontSize: 11, fill: "var(--text-muted, #6b7280)" }}
+          >
+            {totalLabel}
+          </tspan>
+          <tspan
+            x="50%"
+            dy="1.35em"
+            style={{
+              fontSize: 12,
+              fontWeight: 600,
+              fill: "var(--text-primary, #111827)",
+            }}
+          >
+            {formatValue ? formatValue(total) : total}
+          </tspan>
         </text>
       </PieChart>
     </ResponsiveContainer>
   );
 }
-

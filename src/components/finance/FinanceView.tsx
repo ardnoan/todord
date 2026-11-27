@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   ArrowLeftRight,
   ArrowUpRight,
   BarChart3,
   CalendarClock,
+  ChevronLeft,
+  ChevronRight,
   CreditCard,
   FolderTree,
   Landmark,
@@ -16,6 +18,7 @@ import {
   Power,
   RefreshCw,
   Search,
+  SlidersHorizontal,
   Smartphone,
   Trash2,
   TrendingDown,
@@ -24,19 +27,17 @@ import {
   Wallet,
   X,
 } from "lucide-react";
-import {
-  calculateAccountReport,
-  calculateAllAccountBalances,
-  calculateBudgetProgress,
-  calculateCategoryReport,
-  calculateMonthlyReport,
-  calculatePeriodSummary,
-  calculateTotalNetBalance,
-  formatRupiah,
-} from "../../lib/finance/calculations";
+import { useIsMobile } from "../../hooks/useIsMobile";
+import { useDialogA11y } from "../../hooks/useDialogA11y";
+import { formatRupiah, roundMoney } from "../../lib/finance/calculations";
+import { getLocalDateString } from "../../lib/date";
 import type {
+  AccountBalanceSummary,
+  AccountReportRow,
   AccountType,
   AppParameterSettings,
+  BudgetProgress,
+  CategoryReportRow,
   CategoryType,
   CsvImportPreview,
   FinanceAccount,
@@ -44,6 +45,8 @@ import type {
   FinanceCategory,
   FinanceRecurringTransaction,
   FinanceTransaction,
+  MonthlyReportRow,
+  PeriodSummary,
   RecurringFrequency,
   TransactionStatus,
   TransactionType,
@@ -61,15 +64,18 @@ import {
   deleteFinanceRecurring,
   deleteFinanceTransaction,
   executeRecurringRule,
+  fetchFinanceAggregates,
   fetchFinanceBundle,
+  fetchFinanceTransactionsPage,
   setAccountActiveStatus,
   upsertFinanceAccount,
   upsertFinanceBudget,
   upsertFinanceCategory,
   upsertFinanceRecurring,
   upsertFinanceTransaction,
+  type FinanceAggregates,
 } from "../../services/financeService";
-import { AppBarChart, AppDonutChart } from "./ApexChart";
+import { AppBarChart, AppDonutChart } from "./Charts";
 import { CurrencyInput } from "./CurrencyInput";
 import { FinanceCsvTab } from "./FinanceCsvTab";
 
@@ -143,18 +149,33 @@ export function FinanceView({
   userName,
   parameters,
 }: FinanceViewProps) {
+  const isMobile = useIsMobile();
   const now = new Date();
   const [activeTab, setActiveTab] = useState<FinanceTab>("dashboard");
   const [selectedMonth, setSelectedMonth] = useState<number>(
     now.getMonth() + 1
   );
   const [selectedYear, setSelectedYear] = useState<number>(now.getFullYear());
+  const [periodSheetOpen, setPeriodSheetOpen] = useState(false);
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
+  const tabsRef = useRef<HTMLElement | null>(null);
+  const periodSheetRef = useRef<HTMLDivElement>(null);
+  const filterSheetRef = useRef<HTMLDivElement>(null);
+  const confirmDialogRef = useRef<HTMLDivElement>(null);
+  const noticeTimerRef = useRef<number | null>(null);
+  const undoTimerRef = useRef<number | null>(null);
+  const [undoTx, setUndoTx] = useState<FinanceTransaction | null>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
 
   const [accounts, setAccounts] = useState<FinanceAccount[]>([]);
   const [categories, setCategories] = useState<FinanceCategory[]>([]);
   const [transactions, setTransactions] = useState<FinanceTransaction[]>([]);
+  const [txHasMore, setTxHasMore] = useState(false);
+  const [loadingMoreTx, setLoadingMoreTx] = useState(false);
   const [budgets, setBudgets] = useState<FinanceBudget[]>([]);
   const [recurring, setRecurring] = useState<FinanceRecurringTransaction[]>([]);
+  const [aggregates, setAggregates] = useState<FinanceAggregates | null>(null);
+  const [processingCatchUp, setProcessingCatchUp] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -178,9 +199,9 @@ export function FinanceView({
   const [categoryModal, setCategoryModal] = useState<
     FinanceCategory | null | undefined
   >(undefined);
-  const [txModal, setTxModal] = useState<
-    FinanceTransaction | null | undefined
-  >(undefined);
+  const [txModal, setTxModal] = useState<FinanceTransaction | null | undefined>(
+    undefined
+  );
   const [budgetModal, setBudgetModal] = useState<
     FinanceBudget | null | undefined
   >(undefined);
@@ -194,16 +215,85 @@ export function FinanceView({
     onConfirm: () => Promise<void>;
   } | null>(null);
 
+  const fetchSnapshot = useCallback(async () => {
+    const [bundle, txPage, aggs] = await Promise.all([
+      fetchFinanceBundle(userId),
+      fetchFinanceTransactionsPage(userId, {
+        month: selectedMonth,
+        year: selectedYear,
+        limit: 50,
+        offset: 0,
+      }),
+      fetchFinanceAggregates(selectedMonth, selectedYear),
+    ]);
+
+    // Seed default finance categories from Admin Parameters on first open
+    const seedFlagKey = `ruang.finance.categories.seeded.${userId}`;
+    let nextCategories = bundle.categories;
+    if (
+      nextCategories.length === 0 &&
+      !localStorage.getItem(seedFlagKey) &&
+      (parameters.defaultFinanceExpenseCategories.length > 0 ||
+        parameters.defaultFinanceIncomeCategories.length > 0)
+    ) {
+      const seeded: FinanceCategory[] = [];
+      for (const name of parameters.defaultFinanceExpenseCategories) {
+        if (!name.trim()) continue;
+        const created = await upsertFinanceCategory(userId, {
+          name: name.trim(),
+          type: "expense",
+          icon: null,
+          color: "#dc2626",
+          parent_id: null,
+        });
+        seeded.push(created);
+      }
+      for (const name of parameters.defaultFinanceIncomeCategories) {
+        if (!name.trim()) continue;
+        const created = await upsertFinanceCategory(userId, {
+          name: name.trim(),
+          type: "income",
+          icon: null,
+          color: "#16a34a",
+          parent_id: null,
+        });
+        seeded.push(created);
+      }
+      if (seeded.length > 0) {
+        nextCategories = seeded;
+      }
+      localStorage.setItem(seedFlagKey, "1");
+    }
+
+    return {
+      accounts: bundle.accounts,
+      categories: nextCategories,
+      budgets: bundle.budgets,
+      recurring: bundle.recurring,
+      txRows: txPage.rows,
+      txHasMore: txPage.hasMore,
+      aggregates: aggs,
+    };
+  }, [
+    userId,
+    selectedMonth,
+    selectedYear,
+    parameters.defaultFinanceExpenseCategories,
+    parameters.defaultFinanceIncomeCategories,
+  ]);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const bundle = await fetchFinanceBundle(userId);
-      setAccounts(bundle.accounts);
-      setCategories(bundle.categories);
-      setTransactions(bundle.transactions);
-      setBudgets(bundle.budgets);
-      setRecurring(bundle.recurring);
+      const snap = await fetchSnapshot();
+      setAccounts(snap.accounts);
+      setCategories(snap.categories);
+      setBudgets(snap.budgets);
+      setRecurring(snap.recurring);
+      setTransactions(snap.txRows);
+      setTxHasMore(snap.txHasMore);
+      setAggregates(snap.aggregates);
     } catch (err) {
       setError(
         err instanceof Error
@@ -213,86 +303,345 @@ export function FinanceView({
     } finally {
       setLoading(false);
     }
-  }, [userId]);
+  }, [fetchSnapshot]);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    let cancelled = false;
+    fetchSnapshot()
+      .then((snap) => {
+        if (cancelled) return;
+        setAccounts(snap.accounts);
+        setCategories(snap.categories);
+        setBudgets(snap.budgets);
+        setRecurring(snap.recurring);
+        setTransactions(snap.txRows);
+        setTxHasMore(snap.txHasMore);
+        setAggregates(snap.aggregates);
+        setError("");
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Gagal memuat data keuangan dari Supabase. Pastikan migrasi SQL sudah dijalankan."
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchSnapshot]);
 
-  const showNotice = (msg: string) => {
-    setNotice(msg);
-    setTimeout(() => setNotice(""), 3500);
-  };
+  async function handleLoadMoreTransactions() {
+    if (loadingMoreTx || !txHasMore) return;
+    setLoadingMoreTx(true);
+    try {
+      const nextPage = await fetchFinanceTransactionsPage(userId, {
+        month: selectedMonth,
+        year: selectedYear,
+        limit: 50,
+        offset: transactions.length,
+      });
+      setTransactions((prev) => [...prev, ...nextPage.rows]);
+      setTxHasMore(nextPage.hasMore);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Gagal memuat transaksi berikutnya."
+      );
+    } finally {
+      setLoadingMoreTx(false);
+    }
+  }
 
-  // Derived calculations
-  const accountBalances = useMemo(
-    () => calculateAllAccountBalances(accounts, transactions),
-    [accounts, transactions]
+  useEffect(() => {
+    function handleOpenNewTx() {
+      if (accounts.length > 0) {
+        setTxModal(null);
+      }
+    }
+    window.addEventListener("ruang:finance-new-tx", handleOpenNewTx);
+    return () =>
+      window.removeEventListener("ruang:finance-new-tx", handleOpenNewTx);
+  }, [accounts.length]);
+
+  useEffect(() => {
+    if (!isMobile || !tabsRef.current) return;
+    const activeEl = tabsRef.current.querySelector(".finance-tab.active");
+    if (activeEl && typeof activeEl.scrollIntoView === "function") {
+      activeEl.scrollIntoView({
+        inline: "center",
+        block: "nearest",
+        behavior: "smooth",
+      });
+    }
+  }, [activeTab, isMobile]);
+
+  const yearOptions = useMemo(() => {
+    const base = new Date().getFullYear();
+    const list: number[] = [];
+    for (let y = base - 5; y <= base + 5; y += 1) {
+      list.push(y);
+    }
+    if (!list.includes(selectedYear)) {
+      list.push(selectedYear);
+      list.sort((a, b) => a - b);
+    }
+    return list;
+  }, [selectedYear]);
+
+  const activeTxFilterCount = useMemo(() => {
+    let count = 0;
+    if (txTypeFilter !== "all") count += 1;
+    if (txStatusFilter !== "all") count += 1;
+    if (txAccountFilter !== "all") count += 1;
+    if (txCategoryFilter !== "all") count += 1;
+    return count;
+  }, [txTypeFilter, txStatusFilter, txAccountFilter, txCategoryFilter]);
+
+  function handlePrevPeriod() {
+    if (selectedMonth === 1) {
+      setSelectedMonth(12);
+      setSelectedYear((y) => y - 1);
+    } else {
+      setSelectedMonth((m) => m - 1);
+    }
+  }
+
+  function handleNextPeriod() {
+    if (selectedMonth === 12) {
+      setSelectedMonth(1);
+      setSelectedYear((y) => y + 1);
+    } else {
+      setSelectedMonth((m) => m + 1);
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      if (noticeTimerRef.current !== null) {
+        window.clearTimeout(noticeTimerRef.current);
+      }
+      if (undoTimerRef.current !== null) {
+        window.clearTimeout(undoTimerRef.current);
+      }
+    };
+  }, []);
+
+  useDialogA11y(
+    periodSheetOpen,
+    () => setPeriodSheetOpen(false),
+    periodSheetRef
   );
+  useDialogA11y(
+    filterSheetOpen,
+    () => setFilterSheetOpen(false),
+    filterSheetRef
+  );
+  useDialogA11y(
+    Boolean(confirmAction),
+    () => {
+      if (!confirmBusy) setConfirmAction(null);
+    },
+    confirmDialogRef
+  );
+
+  const showNotice = useCallback((msg: string) => {
+    setNotice(msg);
+    if (noticeTimerRef.current !== null) {
+      window.clearTimeout(noticeTimerRef.current);
+    }
+    noticeTimerRef.current = window.setTimeout(() => {
+      setNotice("");
+      noticeTimerRef.current = null;
+    }, 3500);
+  }, []);
+
+  function triggerUndoTx(deleted: FinanceTransaction) {
+    setUndoTx(deleted);
+    if (undoTimerRef.current !== null) {
+      window.clearTimeout(undoTimerRef.current);
+    }
+    undoTimerRef.current = window.setTimeout(() => {
+      setUndoTx(null);
+      undoTimerRef.current = null;
+    }, 5000);
+  }
+
+  async function handleUndoDeleteTx() {
+    if (!undoTx) return;
+    const txToRestore = undoTx;
+    setUndoTx(null);
+    if (undoTimerRef.current !== null) {
+      window.clearTimeout(undoTimerRef.current);
+      undoTimerRef.current = null;
+    }
+    try {
+      await upsertFinanceTransaction(userId, {
+        account_id: txToRestore.account_id,
+        transfer_account_id: txToRestore.transfer_account_id,
+        category_id: txToRestore.category_id,
+        amount: txToRestore.amount,
+        type: txToRestore.type,
+        status: txToRestore.status,
+        reference_no: txToRestore.reference_no,
+        transaction_date: txToRestore.transaction_date,
+        title: txToRestore.title,
+        notes: txToRestore.notes,
+      });
+      await loadData();
+      showNotice(`Transaksi "${txToRestore.title}" dipulihkan.`);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Gagal memulihkan transaksi."
+      );
+    }
+  }
+
+  // Derived calculations from server-side SQL aggregates (no 1000-row client cap)
+  const accountBalances: AccountBalanceSummary[] = useMemo(() => {
+    const balMap = new Map(
+      (aggregates?.accountBalances ?? []).map((b) => [b.account_id, b])
+    );
+    return accounts.map((account) => {
+      const b = balMap.get(account.id);
+      const openingBalance = roundMoney(Number(account.opening_balance) || 0);
+      const totalInflow = roundMoney(b?.total_inflow ?? 0);
+      const totalOutflow = roundMoney(b?.total_outflow ?? 0);
+      const currentBalance = b ? roundMoney(b.current_balance) : openingBalance;
+      return {
+        account,
+        openingBalance,
+        currentBalance,
+        totalInflow,
+        totalOutflow,
+        transactionCount: b?.transaction_count ?? 0,
+      };
+    });
+  }, [accounts, aggregates]);
 
   const totalNetBalance = useMemo(
-    () => calculateTotalNetBalance(accounts, transactions, false),
-    [accounts, transactions]
-  );
-
-  const periodSummary = useMemo(
-    () => calculatePeriodSummary(transactions, selectedMonth, selectedYear),
-    [transactions, selectedMonth, selectedYear]
-  );
-
-  const budgetProgressList = useMemo(
     () =>
-      calculateBudgetProgress(
-        budgets,
-        categories,
-        transactions,
-        selectedMonth,
-        selectedYear,
-        parameters.budgetWarningThresholdPercent
+      roundMoney(
+        accountBalances
+          .filter((s) => s.account.is_active)
+          .reduce((acc, s) => acc + s.currentBalance, 0)
       ),
-    [
-      budgets,
-      categories,
-      transactions,
-      selectedMonth,
-      selectedYear,
-      parameters.budgetWarningThresholdPercent,
-    ]
+    [accountBalances]
   );
 
-  const monthlyReport = useMemo(
-    () => calculateMonthlyReport(transactions, selectedYear),
-    [transactions, selectedYear]
-  );
-
-  const expenseCategoryReport = useMemo(
+  const periodSummary: PeriodSummary = useMemo(
     () =>
-      calculateCategoryReport(
-        transactions,
-        categories,
-        "expense",
-        selectedMonth,
-        selectedYear
-      ),
-    [transactions, categories, selectedMonth, selectedYear]
+      aggregates?.periodSummary ?? {
+        month: selectedMonth,
+        year: selectedYear,
+        totalIncome: 0,
+        totalExpense: 0,
+        netCashflow: 0,
+        transferVolume: 0,
+        adjustmentNet: 0,
+        transactionCount: 0,
+      },
+    [aggregates, selectedMonth, selectedYear]
   );
 
-  const incomeCategoryReport = useMemo(
+  const budgetProgressList: BudgetProgress[] = useMemo(() => {
+    const catMap = new Map(categories.map((c) => [c.id, c]));
+    const spentMap = aggregates?.budgetSpentMap ?? {};
+    return budgets
+      .filter((b) => b.month === selectedMonth && b.year === selectedYear)
+      .map((budget) => {
+        const category = catMap.get(budget.category_id);
+        const limitAmount = roundMoney(Number(budget.limit_amount) || 0);
+        const spentAmount = roundMoney(spentMap[budget.category_id] ?? 0);
+        const remainingAmount = roundMoney(limitAmount - spentAmount);
+        const percentage =
+          limitAmount > 0
+            ? Math.round((spentAmount / limitAmount) * 1000) / 10
+            : spentAmount > 0
+              ? 100
+              : 0;
+        return {
+          budget,
+          category,
+          limitAmount,
+          spentAmount,
+          remainingAmount,
+          percentage,
+          isOverBudget: spentAmount > limitAmount,
+          isWarning:
+            spentAmount <= limitAmount &&
+            percentage >= parameters.budgetWarningThresholdPercent,
+        };
+      });
+  }, [
+    budgets,
+    categories,
+    aggregates,
+    selectedMonth,
+    selectedYear,
+    parameters.budgetWarningThresholdPercent,
+  ]);
+
+  const monthlyReport: MonthlyReportRow[] = useMemo(
+    () => aggregates?.monthlyReport ?? [],
+    [aggregates]
+  );
+
+  const expenseCategoryReport: CategoryReportRow[] = useMemo(() => {
+    const rows = aggregates?.expenseCategoryReport ?? [];
+    const grandTotal = rows.reduce((acc, r) => acc + r.total, 0);
+    return rows.map((r) => ({
+      categoryId: r.category_id,
+      categoryName: r.category_name,
+      type: "expense",
+      total: roundMoney(r.total),
+      count: r.count,
+      sharePercent:
+        grandTotal > 0 ? Math.round((r.total / grandTotal) * 1000) / 10 : 0,
+      color: r.color,
+    }));
+  }, [aggregates]);
+
+  const incomeCategoryReport: CategoryReportRow[] = useMemo(() => {
+    const rows = aggregates?.incomeCategoryReport ?? [];
+    const grandTotal = rows.reduce((acc, r) => acc + r.total, 0);
+    return rows.map((r) => ({
+      categoryId: r.category_id,
+      categoryName: r.category_name,
+      type: "income",
+      total: roundMoney(r.total),
+      count: r.count,
+      sharePercent:
+        grandTotal > 0 ? Math.round((r.total / grandTotal) * 1000) / 10 : 0,
+      color: r.color,
+    }));
+  }, [aggregates]);
+
+  const accountReport: AccountReportRow[] = useMemo(
     () =>
-      calculateCategoryReport(
-        transactions,
-        categories,
-        "income",
-        selectedMonth,
-        selectedYear
-      ),
-    [transactions, categories, selectedMonth, selectedYear]
+      accountBalances.map((s) => ({
+        accountId: s.account.id,
+        accountName: s.account.name,
+        accountType: s.account.type,
+        isActive: s.account.is_active,
+        openingBalance: s.openingBalance,
+        inflow: s.totalInflow,
+        outflow: s.totalOutflow,
+        netChange: roundMoney(s.totalInflow - s.totalOutflow),
+        currentBalance: s.currentBalance,
+      })),
+    [accountBalances]
   );
 
-  const accountReport = useMemo(
-    () => calculateAccountReport(accounts, transactions),
-    [accounts, transactions]
-  );
+  const dueRecurringRules = useMemo(() => {
+    const todayIso = getLocalDateString();
+    return recurring.filter((r) => r.is_active && r.next_due_date <= todayIso);
+  }, [recurring]);
 
   const filteredTransactions = useMemo(() => {
     const q = txSearch.trim().toLowerCase();
@@ -305,7 +654,8 @@ export function FinanceView({
         return false;
       }
       if (txTypeFilter !== "all" && tx.type !== txTypeFilter) return false;
-      if (txStatusFilter !== "all" && tx.status !== txStatusFilter) return false;
+      if (txStatusFilter !== "all" && tx.status !== txStatusFilter)
+        return false;
       if (
         txAccountFilter !== "all" &&
         tx.account_id !== txAccountFilter &&
@@ -348,7 +698,11 @@ export function FinanceView({
     formatRupiah(amount, parameters.currencyLocale, parameters.currencyCode);
 
   const tabs: { id: FinanceTab; label: string; icon: JSX.Element }[] = [
-    { id: "dashboard", label: "Ringkasan", icon: <LayoutDashboard size={15} /> },
+    {
+      id: "dashboard",
+      label: "Ringkasan",
+      icon: <LayoutDashboard size={15} />,
+    },
     { id: "accounts", label: "Akun", icon: <Wallet size={15} /> },
     { id: "categories", label: "Kategori", icon: <FolderTree size={15} /> },
     {
@@ -363,7 +717,7 @@ export function FinanceView({
   ];
 
   async function handleExecuteRecurring(rule: FinanceRecurringTransaction) {
-    const todayIso = new Date().toISOString().slice(0, 10);
+    const todayIso = getLocalDateString();
     try {
       const res = await executeRecurringRule(userId, rule, todayIso);
       if (res.executed) {
@@ -374,14 +728,54 @@ export function FinanceView({
           res.reason === "not_due"
             ? `Belum jatuh tempo (berikutnya: ${rule.next_due_date}).`
             : res.reason === "already_processed"
-            ? "Sudah diproses untuk periode ini (tidak digandakan)."
-            : "Aturan berulang tidak aktif."
+              ? "Sudah diproses untuk periode ini (tidak digandakan)."
+              : "Aturan berulang tidak aktif."
         );
       }
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Gagal mengeksekusi transaksi."
       );
+    }
+  }
+
+  async function handleCatchUpAllRecurring() {
+    if (processingCatchUp || dueRecurringRules.length === 0) return;
+    setProcessingCatchUp(true);
+    setError("");
+    const todayIso = getLocalDateString();
+    let executedCount = 0;
+    const MAX_ITERATIONS_PER_RULE = 24;
+
+    try {
+      for (const rule of dueRecurringRules) {
+        let currentRule = { ...rule };
+        for (let iter = 0; iter < MAX_ITERATIONS_PER_RULE; iter += 1) {
+          const res = await executeRecurringRule(userId, currentRule, todayIso);
+          if (!res.executed) break;
+          executedCount += 1;
+          if (res.next_due_date) {
+            currentRule = { ...currentRule, next_due_date: res.next_due_date };
+            if (currentRule.next_due_date > todayIso) break;
+          } else {
+            break;
+          }
+        }
+      }
+      await loadData();
+      showNotice(
+        executedCount > 0
+          ? `${executedCount} transaksi berulang yang jatuh tempo berhasil diproses.`
+          : "Tidak ada jadwal jatuh tempo yang perlu diproses."
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Gagal memproses jadwal berulang yang jatuh tempo."
+      );
+    } finally {
+      setProcessingCatchUp(false);
     }
   }
 
@@ -408,42 +802,73 @@ export function FinanceView({
         </div>
 
         <div className="finance-hero-controls">
-          <div className="finance-period-picker">
-            <select
-              aria-label="Pilih Bulan"
-              value={selectedMonth}
-              onChange={(e) => setSelectedMonth(Number(e.target.value))}
-            >
-              {MONTH_NAMES.map((name, idx) => (
-                <option key={name} value={idx + 1}>
-                  {name}
-                </option>
-              ))}
-            </select>
-            <input
-              type="number"
-              aria-label="Pilih Tahun"
-              min={2000}
-              max={2100}
-              value={selectedYear}
-              onChange={(e) =>
-                setSelectedYear(Number(e.target.value) || now.getFullYear())
-              }
-            />
-          </div>
+          {isMobile ? (
+            <div className="finance-period-mobile">
+              <button
+                type="button"
+                className="icon-btn"
+                aria-label="Bulan sebelumnya"
+                onClick={handlePrevPeriod}
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <button
+                type="button"
+                className="finance-period-label-btn"
+                onClick={() => setPeriodSheetOpen(true)}
+                aria-label="Pilih bulan dan tahun"
+              >
+                {MONTH_NAMES[selectedMonth - 1]} {selectedYear}
+              </button>
+              <button
+                type="button"
+                className="icon-btn"
+                aria-label="Bulan berikutnya"
+                onClick={handleNextPeriod}
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          ) : (
+            <div className="finance-period-picker">
+              <select
+                aria-label="Pilih Bulan"
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(Number(e.target.value))}
+              >
+                {MONTH_NAMES.map((name, idx) => (
+                  <option key={name} value={idx + 1}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+              <select
+                aria-label="Pilih Tahun"
+                value={selectedYear}
+                onChange={(e) => setSelectedYear(Number(e.target.value))}
+              >
+                {yearOptions.map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <button
             type="button"
             className="button-quiet"
             onClick={loadData}
             title="Muat ulang data"
+            aria-label="Muat ulang data keuangan"
           >
             <RefreshCw size={15} />
           </button>
 
           <button
             type="button"
-            className="button-primary"
+            className="button-primary finance-hero-cta"
             onClick={() => setTxModal(null)}
             disabled={accounts.length === 0}
           >
@@ -453,7 +878,7 @@ export function FinanceView({
       </div>
 
       {/* Sub-navigation tabs */}
-      <nav className="finance-tabs" aria-label="Menu Keuangan">
+      <nav ref={tabsRef} className="finance-tabs" aria-label="Menu Keuangan">
         {tabs.map((tab) => (
           <button
             key={tab.id}
@@ -475,6 +900,37 @@ export function FinanceView({
       {notice && (
         <div className="success-banner" role="status">
           {notice}
+        </div>
+      )}
+      {undoTx && (
+        <div className="undo-toast-banner" role="status">
+          <span>Transaksi &ldquo;{undoTx.title}&rdquo; dihapus.</span>
+          <button
+            type="button"
+            className="button-quiet btn-xs"
+            onClick={handleUndoDeleteTx}
+          >
+            Urungkan
+          </button>
+        </div>
+      )}
+      {dueRecurringRules.length > 0 && (
+        <div className="finance-catchup-banner" role="status">
+          <span>
+            <CalendarClock size={16} />{" "}
+            <strong>
+              {dueRecurringRules.length} jadwal berulang jatuh tempo
+            </strong>{" "}
+            siap diproses.
+          </span>
+          <button
+            type="button"
+            className="button-primary btn-xs"
+            onClick={handleCatchUpAllRecurring}
+            disabled={processingCatchUp}
+          >
+            {processingCatchUp ? "Memproses..." : "Proses semua"}
+          </button>
         </div>
       )}
 
@@ -635,8 +1091,8 @@ export function FinanceView({
                                 bp.isOverBudget
                                   ? "over"
                                   : bp.isWarning
-                                  ? "warn"
-                                  : "ok"
+                                    ? "warn"
+                                    : "ok"
                               }`}
                               style={{
                                 width: `${Math.min(100, bp.percentage)}%`,
@@ -748,7 +1204,10 @@ export function FinanceView({
                     <tbody>
                       {accountBalances.map((item) => (
                         <tr key={item.account.id}>
-                          <td>
+                          <td
+                            data-label="Nama Akun"
+                            className="card-primary-cell"
+                          >
                             <div className="account-cell">
                               <span
                                 className="account-dot"
@@ -757,21 +1216,30 @@ export function FinanceView({
                               <strong>{item.account.name}</strong>
                             </div>
                           </td>
-                          <td>{ACCOUNT_TYPE_LABELS[item.account.type]}</td>
-                          <td>
+                          <td data-label="Tipe">
+                            {ACCOUNT_TYPE_LABELS[item.account.type]}
+                          </td>
+                          <td data-label="Status">
                             <span
                               className={`pill ${
-                                item.account.is_active ? "pill-ok" : "pill-muted"
+                                item.account.is_active
+                                  ? "pill-ok"
+                                  : "pill-muted"
                               }`}
                             >
                               {item.account.is_active ? "Aktif" : "Nonaktif"}
                             </span>
                           </td>
-                          <td>{fmt(item.openingBalance)}</td>
-                          <td>
+                          <td data-label="Saldo Awal">
+                            {fmt(item.openingBalance)}
+                          </td>
+                          <td
+                            data-label="Saldo Berjalan"
+                            className="card-amount-cell"
+                          >
                             <strong>{fmt(item.currentBalance)}</strong>
                           </td>
-                          <td className="actions-cell">
+                          <td data-label="Aksi" className="actions-cell">
                             <button
                               type="button"
                               className="icon-btn"
@@ -920,10 +1388,16 @@ export function FinanceView({
                                       <button
                                         type="button"
                                         className="icon-btn danger"
-                                        onClick={() =>
+                                        onClick={() => {
+                                          if (children.length > 0) {
+                                            setError(
+                                              `Kategori "${parent.name}" masih memiliki ${children.length} sub-kategori. Hapus atau pindahkan sub-kategori terlebih dahulu.`
+                                            );
+                                            return;
+                                          }
                                           setConfirmAction({
                                             title: "Hapus Kategori?",
-                                            message: `Hapus kategori "${parent.name}"?`,
+                                            message: `Hapus kategori "${parent.name}"? Perhatian: semua budget yang terhubung dengan kategori ini juga akan ikut terhapus.`,
                                             confirmLabel: "Hapus",
                                             onConfirm: async () => {
                                               await deleteFinanceCategory(
@@ -933,8 +1407,8 @@ export function FinanceView({
                                               await loadData();
                                               showNotice("Kategori dihapus.");
                                             },
-                                          })
-                                        }
+                                          });
+                                        }}
                                       >
                                         <Trash2 size={13} />
                                       </button>
@@ -950,7 +1424,9 @@ export function FinanceView({
                                         <button
                                           type="button"
                                           className="icon-btn"
-                                          onClick={() => setCategoryModal(child)}
+                                          onClick={() =>
+                                            setCategoryModal(child)
+                                          }
                                         >
                                           <Pencil size={13} />
                                         </button>
@@ -960,7 +1436,7 @@ export function FinanceView({
                                           onClick={() =>
                                             setConfirmAction({
                                               title: "Hapus Kategori Anak?",
-                                              message: `Hapus kategori "${child.name}"?`,
+                                              message: `Hapus kategori "${child.name}"? Perhatian: semua budget yang terhubung dengan kategori ini juga akan ikut terhapus.`,
                                               confirmLabel: "Hapus",
                                               onConfirm: async () => {
                                                 await deleteFinanceCategory(
@@ -1019,58 +1495,80 @@ export function FinanceView({
                   />
                 </label>
 
-                <select
-                  value={txTypeFilter}
-                  onChange={(e) =>
-                    setTxTypeFilter(
-                      e.target.value as TransactionType | "all"
-                    )
-                  }
-                >
-                  <option value="all">Semua Tipe</option>
-                  <option value="income">Pemasukan</option>
-                  <option value="expense">Pengeluaran</option>
-                  <option value="transfer">Transfer</option>
-                  <option value="adjustment">Penyesuaian</option>
-                </select>
+                {isMobile ? (
+                  <button
+                    type="button"
+                    className="button-quiet finance-filter-trigger"
+                    onClick={() => setFilterSheetOpen(true)}
+                  >
+                    <SlidersHorizontal size={15} />
+                    <span>Filter</span>
+                    {activeTxFilterCount > 0 && (
+                      <span className="filter-badge">
+                        {activeTxFilterCount}
+                      </span>
+                    )}
+                  </button>
+                ) : (
+                  <>
+                    <select
+                      aria-label="Filter tipe transaksi"
+                      value={txTypeFilter}
+                      onChange={(e) =>
+                        setTxTypeFilter(
+                          e.target.value as TransactionType | "all"
+                        )
+                      }
+                    >
+                      <option value="all">Semua Tipe</option>
+                      <option value="income">Pemasukan</option>
+                      <option value="expense">Pengeluaran</option>
+                      <option value="transfer">Transfer</option>
+                      <option value="adjustment">Penyesuaian</option>
+                    </select>
 
-                <select
-                  value={txStatusFilter}
-                  onChange={(e) =>
-                    setTxStatusFilter(
-                      e.target.value as TransactionStatus | "all"
-                    )
-                  }
-                >
-                  <option value="all">Semua Status</option>
-                  <option value="pending">Pending</option>
-                  <option value="cleared">Cleared</option>
-                  <option value="reconciled">Reconciled</option>
-                </select>
+                    <select
+                      aria-label="Filter status transaksi"
+                      value={txStatusFilter}
+                      onChange={(e) =>
+                        setTxStatusFilter(
+                          e.target.value as TransactionStatus | "all"
+                        )
+                      }
+                    >
+                      <option value="all">Semua Status</option>
+                      <option value="pending">Pending</option>
+                      <option value="cleared">Cleared</option>
+                      <option value="reconciled">Reconciled</option>
+                    </select>
 
-                <select
-                  value={txAccountFilter}
-                  onChange={(e) => setTxAccountFilter(e.target.value)}
-                >
-                  <option value="all">Semua Akun</option>
-                  {accounts.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name}
-                    </option>
-                  ))}
-                </select>
+                    <select
+                      aria-label="Filter akun"
+                      value={txAccountFilter}
+                      onChange={(e) => setTxAccountFilter(e.target.value)}
+                    >
+                      <option value="all">Semua Akun</option>
+                      {accounts.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.name}
+                        </option>
+                      ))}
+                    </select>
 
-                <select
-                  value={txCategoryFilter}
-                  onChange={(e) => setTxCategoryFilter(e.target.value)}
-                >
-                  <option value="all">Semua Kategori</option>
-                  {categories.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} ({c.type})
-                    </option>
-                  ))}
-                </select>
+                    <select
+                      aria-label="Filter kategori"
+                      value={txCategoryFilter}
+                      onChange={(e) => setTxCategoryFilter(e.target.value)}
+                    >
+                      <option value="all">Semua Kategori</option>
+                      {categories.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name} ({c.type})
+                        </option>
+                      ))}
+                    </select>
+                  </>
+                )}
               </div>
 
               {filteredTransactions.length === 0 ? (
@@ -1103,12 +1601,15 @@ export function FinanceView({
                           : undefined;
                         return (
                           <tr key={tx.id}>
-                            <td>
+                            <td data-label="Tanggal">
                               {new Date(tx.transaction_date).toLocaleDateString(
                                 "id-ID"
                               )}
                             </td>
-                            <td>
+                            <td
+                              data-label="Judul"
+                              className="card-primary-cell"
+                            >
                               <strong>{tx.title}</strong>
                               {tx.reference_no && (
                                 <span className="finance-muted">
@@ -1117,25 +1618,28 @@ export function FinanceView({
                                 </span>
                               )}
                             </td>
-                            <td>{TX_TYPE_LABELS[tx.type]}</td>
-                            <td>
+                            <td data-label="Tipe">{TX_TYPE_LABELS[tx.type]}</td>
+                            <td data-label="Akun">
                               {acc?.name ?? "-"}
                               {targetAcc ? ` → ${targetAcc.name}` : ""}
                             </td>
-                            <td>{cat?.name ?? "-"}</td>
-                            <td>
+                            <td data-label="Kategori">{cat?.name ?? "-"}</td>
+                            <td data-label="Status">
                               <span className={`tx-status status-${tx.status}`}>
                                 {STATUS_LABELS[tx.status]}
                               </span>
                             </td>
-                            <td>
+                            <td
+                              data-label="Nominal"
+                              className="card-amount-cell"
+                            >
                               <strong className={`tx-amount ${tx.type}`}>
                                 {tx.type === "expense" ? "-" : ""}
                                 {tx.type === "income" ? "+" : ""}
                                 {fmt(tx.amount)}
                               </strong>
                             </td>
-                            <td className="actions-cell">
+                            <td data-label="Aksi" className="actions-cell">
                               <button
                                 type="button"
                                 className="icon-btn"
@@ -1157,7 +1661,7 @@ export function FinanceView({
                                         tx.id
                                       );
                                       await loadData();
-                                      showNotice("Transaksi dihapus.");
+                                      triggerUndoTx(tx);
                                     },
                                   })
                                 }
@@ -1170,6 +1674,18 @@ export function FinanceView({
                       })}
                     </tbody>
                   </table>
+                  {txHasMore && (
+                    <div className="finance-load-more">
+                      <button
+                        type="button"
+                        className="button-quiet"
+                        onClick={handleLoadMoreTransactions}
+                        disabled={loadingMoreTx}
+                      >
+                        {loadingMoreTx ? "Memuat..." : "Muat lebih banyak"}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1259,8 +1775,8 @@ export function FinanceView({
                             bp.isOverBudget
                               ? "over"
                               : bp.isWarning
-                              ? "warn"
-                              : "ok"
+                                ? "warn"
+                                : "ok"
                           }`}
                           style={{
                             width: `${Math.min(100, bp.percentage)}%`,
@@ -1317,20 +1833,26 @@ export function FinanceView({
                     <tbody>
                       {recurring.map((rule) => (
                         <tr key={rule.id}>
-                          <td>
+                          <td data-label="Judul" className="card-primary-cell">
                             <strong>{rule.title}</strong>
                           </td>
-                          <td>{FREQ_LABELS[rule.frequency]}</td>
-                          <td>{accountMap.get(rule.account_id)?.name ?? "-"}</td>
-                          <td>
+                          <td data-label="Frekuensi">
+                            {FREQ_LABELS[rule.frequency]}
+                          </td>
+                          <td data-label="Akun">
+                            {accountMap.get(rule.account_id)?.name ?? "-"}
+                          </td>
+                          <td data-label="Nominal" className="card-amount-cell">
                             <strong className={`tx-amount ${rule.type}`}>
                               {rule.type === "expense" ? "-" : "+"}
                               {fmt(rule.amount)}
                             </strong>
                           </td>
-                          <td>{rule.next_due_date}</td>
-                          <td>{rule.last_processed_date ?? "-"}</td>
-                          <td>
+                          <td data-label="Jatuh Tempo">{rule.next_due_date}</td>
+                          <td data-label="Terakhir Diproses">
+                            {rule.last_processed_date ?? "-"}
+                          </td>
+                          <td data-label="Status">
                             <span
                               className={`pill ${
                                 rule.is_active ? "pill-ok" : "pill-muted"
@@ -1339,7 +1861,7 @@ export function FinanceView({
                               {rule.is_active ? "Aktif" : "Nonaktif"}
                             </span>
                           </td>
-                          <td className="actions-cell">
+                          <td data-label="Aksi" className="actions-cell">
                             <button
                               type="button"
                               className="button-quiet btn-xs"
@@ -1392,14 +1914,22 @@ export function FinanceView({
               <div className="finance-card">
                 <h3>Ringkasan Bulanan ({selectedYear})</h3>
                 <AppBarChart
-                    height={280}
-                    categories={monthlyReport.map((r) => r.label)}
-                    series={[
-                      { name: "Pemasukan", data: monthlyReport.map((r) => r.income), color: "#16a34a" },
-                      { name: "Pengeluaran", data: monthlyReport.map((r) => r.expense), color: "#dc2626" },
-                    ]}
-                    formatValue={(val) => fmt(val)}
-                  />
+                  height={280}
+                  categories={monthlyReport.map((r) => r.label)}
+                  series={[
+                    {
+                      name: "Pemasukan",
+                      data: monthlyReport.map((r) => r.income),
+                      color: "#16a34a",
+                    },
+                    {
+                      name: "Pengeluaran",
+                      data: monthlyReport.map((r) => r.expense),
+                      color: "#dc2626",
+                    },
+                  ]}
+                  formatValue={(val) => fmt(val)}
+                />
                 <div className="finance-table-wrap">
                   <table className="finance-table">
                     <thead>
@@ -1413,16 +1943,22 @@ export function FinanceView({
                     <tbody>
                       {monthlyReport.map((row) => (
                         <tr key={row.month}>
-                          <td>
+                          <td data-label="Bulan" className="card-primary-cell">
                             <strong>{row.label}</strong>
                           </td>
-                          <td className="tx-amount income">
+                          <td
+                            data-label="Pemasukan"
+                            className="tx-amount income"
+                          >
                             {fmt(row.income)}
                           </td>
-                          <td className="tx-amount expense">
+                          <td
+                            data-label="Pengeluaran"
+                            className="tx-amount expense"
+                          >
                             {fmt(row.expense)}
                           </td>
-                          <td>
+                          <td data-label="Bersih" className="card-amount-cell">
                             <strong
                               className={
                                 row.net >= 0
@@ -1453,15 +1989,15 @@ export function FinanceView({
                   ) : (
                     <>
                       <AppDonutChart
-                          height={260}
-                          slices={expenseCategoryReport.map((i) => ({
-                            name: `${i.categoryName} (${i.count}x)`,
-                            value: i.total,
-                            color: i.color,
-                          }))}
-                          totalLabel="Total"
-                          formatValue={(val) => fmt(val)}
-                        />
+                        height={260}
+                        slices={expenseCategoryReport.map((i) => ({
+                          name: `${i.categoryName} (${i.count}x)`,
+                          value: i.total,
+                          color: i.color,
+                        }))}
+                        totalLabel="Total"
+                        formatValue={(val) => fmt(val)}
+                      />
                       <div className="finance-report-list">
                         {expenseCategoryReport.map((item) => (
                           <div
@@ -1497,15 +2033,15 @@ export function FinanceView({
                   ) : (
                     <>
                       <AppDonutChart
-                          height={260}
-                          slices={incomeCategoryReport.map((i) => ({
-                            name: `${i.categoryName} (${i.count}x)`,
-                            value: i.total,
-                            color: i.color,
-                          }))}
-                          totalLabel="Total"
-                          formatValue={(val) => fmt(val)}
-                        />
+                        height={260}
+                        slices={incomeCategoryReport.map((i) => ({
+                          name: `${i.categoryName} (${i.count}x)`,
+                          value: i.total,
+                          color: i.color,
+                        }))}
+                        totalLabel="Total"
+                        formatValue={(val) => fmt(val)}
+                      />
                       <div className="finance-report-list">
                         {incomeCategoryReport.map((item) => (
                           <div
@@ -1546,18 +2082,29 @@ export function FinanceView({
                     <tbody>
                       {accountReport.map((row) => (
                         <tr key={row.accountId}>
-                          <td>
+                          <td data-label="Akun" className="card-primary-cell">
                             <strong>{row.accountName}</strong>
                             {!row.isActive && " (Nonaktif)"}
                           </td>
-                          <td>{fmt(row.openingBalance)}</td>
-                          <td className="tx-amount income">
+                          <td data-label="Saldo Awal">
+                            {fmt(row.openingBalance)}
+                          </td>
+                          <td
+                            data-label="Total Masuk"
+                            className="tx-amount income"
+                          >
                             {fmt(row.inflow)}
                           </td>
-                          <td className="tx-amount expense">
+                          <td
+                            data-label="Total Keluar"
+                            className="tx-amount expense"
+                          >
                             {fmt(row.outflow)}
                           </td>
-                          <td>
+                          <td
+                            data-label="Saldo Berjalan"
+                            className="card-amount-cell"
+                          >
                             <strong>{fmt(row.currentBalance)}</strong>
                           </td>
                         </tr>
@@ -1575,7 +2122,6 @@ export function FinanceView({
               userId={userId}
               accounts={accounts}
               categories={categories}
-              transactions={transactions}
               budgets={budgets}
               recurring={recurring}
               onCommitImport={handleCommitCsvImport}
@@ -1585,6 +2131,181 @@ export function FinanceView({
       )}
 
       {/* MODALS */}
+      {periodSheetOpen && (
+        <div
+          className="finance-modal-backdrop"
+          onClick={() => setPeriodSheetOpen(false)}
+        >
+          <div
+            ref={periodSheetRef}
+            className="finance-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="period-sheet-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="finance-modal-header">
+              <h3 id="period-sheet-title">Pilih Periode</h3>
+              <button
+                type="button"
+                className="icon-btn"
+                aria-label="Tutup"
+                onClick={() => setPeriodSheetOpen(false)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="finance-form">
+              <label className="finance-field">
+                <span>Bulan</span>
+                <select
+                  value={selectedMonth}
+                  onChange={(e) => setSelectedMonth(Number(e.target.value))}
+                >
+                  {MONTH_NAMES.map((name, idx) => (
+                    <option key={name} value={idx + 1}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="finance-field">
+                <span>Tahun</span>
+                <select
+                  value={selectedYear}
+                  onChange={(e) => setSelectedYear(Number(e.target.value))}
+                >
+                  {yearOptions.map((y) => (
+                    <option key={y} value={y}>
+                      {y}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="finance-modal-actions">
+                <button
+                  type="button"
+                  className="button-primary"
+                  onClick={() => setPeriodSheetOpen(false)}
+                >
+                  Terapkan
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {filterSheetOpen && (
+        <div
+          className="finance-modal-backdrop"
+          onClick={() => setFilterSheetOpen(false)}
+        >
+          <div
+            ref={filterSheetRef}
+            className="finance-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="filter-sheet-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="finance-modal-header">
+              <h3 id="filter-sheet-title">Filter Transaksi</h3>
+              <button
+                type="button"
+                className="icon-btn"
+                aria-label="Tutup"
+                onClick={() => setFilterSheetOpen(false)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="finance-form">
+              <label className="finance-field">
+                <span>Tipe</span>
+                <select
+                  value={txTypeFilter}
+                  onChange={(e) =>
+                    setTxTypeFilter(e.target.value as TransactionType | "all")
+                  }
+                >
+                  <option value="all">Semua Tipe</option>
+                  <option value="income">Pemasukan</option>
+                  <option value="expense">Pengeluaran</option>
+                  <option value="transfer">Transfer</option>
+                  <option value="adjustment">Penyesuaian</option>
+                </select>
+              </label>
+              <label className="finance-field">
+                <span>Status</span>
+                <select
+                  value={txStatusFilter}
+                  onChange={(e) =>
+                    setTxStatusFilter(
+                      e.target.value as TransactionStatus | "all"
+                    )
+                  }
+                >
+                  <option value="all">Semua Status</option>
+                  <option value="pending">Pending</option>
+                  <option value="cleared">Cleared</option>
+                  <option value="reconciled">Reconciled</option>
+                </select>
+              </label>
+              <label className="finance-field">
+                <span>Akun</span>
+                <select
+                  value={txAccountFilter}
+                  onChange={(e) => setTxAccountFilter(e.target.value)}
+                >
+                  <option value="all">Semua Akun</option>
+                  {accounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="finance-field">
+                <span>Kategori</span>
+                <select
+                  value={txCategoryFilter}
+                  onChange={(e) => setTxCategoryFilter(e.target.value)}
+                >
+                  <option value="all">Semua Kategori</option>
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} ({c.type})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="finance-modal-actions">
+                <button
+                  type="button"
+                  className="button-quiet"
+                  onClick={() => {
+                    setTxTypeFilter("all");
+                    setTxStatusFilter("all");
+                    setTxAccountFilter("all");
+                    setTxCategoryFilter("all");
+                  }}
+                >
+                  Reset
+                </button>
+                <button
+                  type="button"
+                  className="button-primary"
+                  onClick={() => setFilterSheetOpen(false)}
+                >
+                  Terapkan
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {accountModal !== undefined && (
         <AccountFormModal
           account={accountModal}
@@ -1668,17 +2389,23 @@ export function FinanceView({
           className="modal-backdrop"
           role="dialog"
           aria-modal="true"
-          onClick={() => setConfirmAction(null)}
+          aria-labelledby="finance-confirm-title"
+          onClick={() => {
+            if (!confirmBusy) setConfirmAction(null);
+          }}
         >
           <div
+            ref={confirmDialogRef}
             className="finance-modal"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="finance-modal-header">
-              <h3>{confirmAction.title}</h3>
+              <h3 id="finance-confirm-title">{confirmAction.title}</h3>
               <button
                 type="button"
                 className="icon-btn"
+                aria-label="Tutup"
+                disabled={confirmBusy}
                 onClick={() => setConfirmAction(null)}
               >
                 <X size={16} />
@@ -1689,6 +2416,7 @@ export function FinanceView({
               <button
                 type="button"
                 className="button-quiet"
+                disabled={confirmBusy}
                 onClick={() => setConfirmAction(null)}
               >
                 Batal
@@ -1696,12 +2424,26 @@ export function FinanceView({
               <button
                 type="button"
                 className="button-danger"
+                disabled={confirmBusy}
                 onClick={async () => {
-                  await confirmAction.onConfirm();
-                  setConfirmAction(null);
+                  if (confirmBusy) return;
+                  setConfirmBusy(true);
+                  try {
+                    await confirmAction.onConfirm();
+                    setConfirmAction(null);
+                  } catch (err) {
+                    setError(
+                      err instanceof Error
+                        ? err.message
+                        : "Gagal memproses aksi."
+                    );
+                    setConfirmAction(null);
+                  } finally {
+                    setConfirmBusy(false);
+                  }
                 }}
               >
-                {confirmAction.confirmLabel}
+                {confirmBusy ? "Memproses..." : confirmAction.confirmLabel}
               </button>
             </div>
           </div>
@@ -1736,13 +2478,13 @@ function AccountFormModal({
 }) {
   const [name, setName] = useState(account?.name ?? "");
   const [type, setType] = useState<AccountType>(account?.type ?? "bank");
-  const [opening, setOpening] = useState(
-    String(account?.opening_balance ?? 0)
-  );
+  const [opening, setOpening] = useState(String(account?.opening_balance ?? 0));
   const [color, setColor] = useState(account?.color ?? defaultColor);
   const [isActive, setIsActive] = useState(account?.is_active ?? true);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
+  useDialogA11y(true, onClose, formRef);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -1775,14 +2517,23 @@ function AccountFormModal({
   }
 
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={onClose}>
+    <div
+      className="modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="account-modal-title"
+      onClick={onClose}
+    >
       <form
+        ref={formRef}
         className="finance-modal"
         onSubmit={submit}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="finance-modal-header">
-          <h3>{account ? "Edit Akun" : "Tambah Akun"}</h3>
+          <h3 id="account-modal-title">
+            {account ? "Edit Akun" : "Tambah Akun"}
+          </h3>
           <button type="button" className="icon-btn" onClick={onClose}>
             <X size={16} />
           </button>
@@ -1812,10 +2563,7 @@ function AccountFormModal({
           </label>
           <label className="finance-field">
             <span>Saldo Awal (IDR)</span>
-            <CurrencyInput
-              value={opening}
-              onChangeValue={setOpening}
-            />
+            <CurrencyInput value={opening} onChangeValue={setOpening} />
           </label>
         </div>
         <div className="finance-form-grid">
@@ -1875,6 +2623,8 @@ function CategoryFormModal({
   const [color, setColor] = useState(category?.color ?? "#397a60");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
+  useDialogA11y(true, onClose, formRef);
 
   const parentCandidates = categories.filter(
     (c) => c.type === type && c.id !== category?.id && !c.parent_id
@@ -1912,14 +2662,23 @@ function CategoryFormModal({
   }
 
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={onClose}>
+    <div
+      className="modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="category-modal-title"
+      onClick={onClose}
+    >
       <form
+        ref={formRef}
         className="finance-modal"
         onSubmit={submit}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="finance-modal-header">
-          <h3>{category ? "Edit Kategori" : "Tambah Kategori"}</h3>
+          <h3 id="category-modal-title">
+            {category ? "Edit Kategori" : "Tambah Kategori"}
+          </h3>
           <button type="button" className="icon-btn" onClick={onClose}>
             <X size={16} />
           </button>
@@ -2015,6 +2774,8 @@ function TransactionFormModal({
   const [type, setType] = useState<TransactionType>(
     transaction?.type ?? "expense"
   );
+  const formRef = useRef<HTMLFormElement>(null);
+  useDialogA11y(true, onClose, formRef);
   const [title, setTitle] = useState(transaction?.title ?? "");
   const [amount, setAmount] = useState(String(transaction?.amount ?? ""));
   const [accountId, setAccountId] = useState(
@@ -2030,7 +2791,7 @@ function TransactionFormModal({
   const [txDate, setTxDate] = useState(
     transaction?.transaction_date
       ? transaction.transaction_date.slice(0, 10)
-      : new Date().toISOString().slice(0, 10)
+      : getLocalDateString()
   );
   const [referenceNo, setReferenceNo] = useState(
     transaction?.reference_no ?? ""
@@ -2039,8 +2800,8 @@ function TransactionFormModal({
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const matchingCategories = categories.filter(
-    (c) => type === "income" || type === "expense" ? c.type === type : true
+  const matchingCategories = categories.filter((c) =>
+    type === "income" || type === "expense" ? c.type === type : true
   );
 
   async function submit(e: React.FormEvent) {
@@ -2048,8 +2809,7 @@ function TransactionFormModal({
     const parsedAmount = Number(amount);
     const resolvedTransfer =
       type === "transfer" ? transferAccountId || null : null;
-    const resolvedCategory =
-      type === "transfer" ? null : categoryId || null;
+    const resolvedCategory = type === "transfer" ? null : categoryId || null;
 
     const validationErr = validateTransactionInput({
       user_id: userId,
@@ -2092,14 +2852,23 @@ function TransactionFormModal({
   }
 
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={onClose}>
+    <div
+      className="modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="tx-modal-title"
+      onClick={onClose}
+    >
       <form
+        ref={formRef}
         className="finance-modal"
         onSubmit={submit}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="finance-modal-header">
-          <h3>{transaction ? "Edit Transaksi" : "Catat Transaksi"}</h3>
+          <h3 id="tx-modal-title">
+            {transaction ? "Edit Transaksi" : "Catat Transaksi"}
+          </h3>
           <button type="button" className="icon-btn" onClick={onClose}>
             <X size={16} />
           </button>
@@ -2224,10 +2993,7 @@ function TransactionFormModal({
           </label>
           <label className="finance-field">
             <span>Catatan (Opsional)</span>
-            <input
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-            />
+            <input value={notes} onChange={(e) => setNotes(e.target.value)} />
           </label>
         </div>
         <div className="finance-form-actions">
@@ -2277,6 +3043,8 @@ function BudgetFormModal({
   const [year, setYear] = useState(budget?.year ?? defaultYear);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
+  useDialogA11y(true, onClose, formRef);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -2311,14 +3079,23 @@ function BudgetFormModal({
   }
 
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={onClose}>
+    <div
+      className="modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="budget-modal-title"
+      onClick={onClose}
+    >
       <form
+        ref={formRef}
         className="finance-modal"
         onSubmit={submit}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="finance-modal-header">
-          <h3>{budget ? "Edit Budget" : "Tambah Budget"}</h3>
+          <h3 id="budget-modal-title">
+            {budget ? "Edit Budget" : "Tambah Budget"}
+          </h3>
           <button type="button" className="icon-btn" onClick={onClose}>
             <X size={16} />
           </button>
@@ -2409,7 +3186,9 @@ function RecurringFormModal({
     notes: string | null;
   }) => Promise<void>;
 }) {
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = getLocalDateString();
+  const formRef = useRef<HTMLFormElement>(null);
+  useDialogA11y(true, onClose, formRef);
   const [title, setTitle] = useState(rule?.title ?? "");
   const [type, setType] = useState<CategoryType>(rule?.type ?? "expense");
   const [amount, setAmount] = useState(String(rule?.amount ?? ""));
@@ -2462,14 +3241,23 @@ function RecurringFormModal({
   }
 
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={onClose}>
+    <div
+      className="modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="recurring-modal-title"
+      onClick={onClose}
+    >
       <form
+        ref={formRef}
         className="finance-modal"
         onSubmit={submit}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="finance-modal-header">
-          <h3>{rule ? "Edit Jadwal Berulang" : "Tambah Jadwal Berulang"}</h3>
+          <h3 id="recurring-modal-title">
+            {rule ? "Edit Jadwal Berulang" : "Tambah Jadwal Berulang"}
+          </h3>
           <button type="button" className="icon-btn" onClick={onClose}>
             <X size={16} />
           </button>
@@ -2515,11 +3303,7 @@ function RecurringFormModal({
         <div className="finance-form-grid">
           <label className="finance-field">
             <span>Nominal (IDR)</span>
-            <CurrencyInput
-              value={amount}
-              onChangeValue={setAmount}
-              required
-            />
+            <CurrencyInput value={amount} onChangeValue={setAmount} required />
           </label>
           <label className="finance-field">
             <span>Akun</span>

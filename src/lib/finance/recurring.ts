@@ -22,9 +22,11 @@ function formatIsoDateParts(year: number, month: number, day: number): string {
 
 export function advanceNextDueDate(
   currentDueDate: string,
-  frequency: RecurringFrequency
+  frequency: RecurringFrequency,
+  anchorDay?: number
 ): string {
   const { year, month, day } = parseIsoDateParts(currentDueDate);
+  const effectiveDay = anchorDay ?? day;
 
   if (frequency === "daily") {
     const dt = new Date(Date.UTC(year, month - 1, day + 1));
@@ -41,7 +43,7 @@ export function advanceNextDueDate(
     const daysInTargetMonth = new Date(
       Date.UTC(targetYear, normalizedMonth, 0)
     ).getUTCDate();
-    const clampedDay = Math.min(day, daysInTargetMonth);
+    const clampedDay = Math.min(effectiveDay, daysInTargetMonth);
     return formatIsoDateParts(targetYear, normalizedMonth, clampedDay);
   }
 
@@ -50,7 +52,7 @@ export function advanceNextDueDate(
   const daysInTargetMonth = new Date(
     Date.UTC(targetYear, month, 0)
   ).getUTCDate();
-  const clampedDay = Math.min(day, daysInTargetMonth);
+  const clampedDay = Math.min(effectiveDay, daysInTargetMonth);
   return formatIsoDateParts(targetYear, month, clampedDay);
 }
 
@@ -103,7 +105,14 @@ export function executeRecurringLocally(
   }
 
   const processedDate = recurring.next_due_date;
-  const nextDueDate = advanceNextDueDate(processedDate, recurring.frequency);
+  const anchorDay = recurring.start_date
+    ? parseIsoDateParts(recurring.start_date).day
+    : undefined;
+  const nextDueDate = advanceNextDueDate(
+    processedDate,
+    recurring.frequency,
+    anchorDay
+  );
 
   const createdTransaction: FinanceTransaction = {
     id: generateId(),

@@ -347,14 +347,13 @@ export function prepareCsvImportPreview(params: {
     params.existingRecurring.map((r) => r.id)
   );
 
-  const validateHeaders = (
-    table: CsvTableKey,
-    headers: string[]
-  ): boolean => {
+  const validateHeaders = (table: CsvTableKey, headers: string[]): boolean => {
     const required = CSV_HEADERS[table];
     const missing = required.filter((col) => {
       if (table === "accounts" && col === "opening_balance") {
-        return !headers.includes("opening_balance") && !headers.includes("balance");
+        return (
+          !headers.includes("opening_balance") && !headers.includes("balance")
+        );
       }
       return !headers.includes(col);
     });
@@ -590,7 +589,10 @@ export function prepareCsvImportPreview(params: {
           });
         }
 
-        const transferAccId = resolveEntityUuid("accounts", r.transfer_account_id);
+        const transferAccId = resolveEntityUuid(
+          "accounts",
+          r.transfer_account_id
+        );
         if (txType === "transfer") {
           if (!transferAccId) {
             errors.push({
@@ -619,7 +621,8 @@ export function prepareCsvImportPreview(params: {
             table: "transactions",
             row: rowNum,
             field: "transfer_account_id",
-            message: "transfer_account_id harus kosong jika tipe bukan transfer.",
+            message:
+              "transfer_account_id harus kosong jika tipe bukan transfer.",
           });
         }
 
@@ -747,7 +750,8 @@ export function prepareCsvImportPreview(params: {
     for (const acc of payload.accounts) {
       if (endingBalanceAccountIds.has(acc.id)) {
         const net = netEffectByAcc.get(acc.id) ?? 0;
-        acc.opening_balance = Math.round((acc.opening_balance - net) * 100) / 100;
+        acc.opening_balance =
+          Math.round((acc.opening_balance - net) * 100) / 100;
       }
     }
   }

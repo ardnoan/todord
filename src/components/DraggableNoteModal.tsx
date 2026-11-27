@@ -12,6 +12,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import type { NoteColor } from "../types";
+import { useIsMobile } from "../hooks/useIsMobile";
 
 export interface NoteData {
   id: string;
@@ -92,21 +93,16 @@ export function DraggableNoteModal({
 }: DraggableNoteModalProps) {
   const [title, setTitle] = useState(note.title);
   const [content, setContent] = useState(note.content);
-  const [activeColor, setActiveColor] = useState<NoteColor>(note.color || "yellow");
+  const [activeColor, setActiveColor] = useState<NoteColor>(
+    note.color || "yellow"
+  );
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [isPinned, setIsPinned] = useState(note.pinned || false);
   const [isMinimized, setIsMinimized] = useState(false);
+  const isMobile = useIsMobile();
   const dragControls = useDragControls();
   const [isSaving, setIsSaving] = useState(false);
   const noteRef = useRef<HTMLDivElement>(null);
-
-  // Sync state if note changes
-  useEffect(() => {
-    setTitle(note.title);
-    setContent(note.content);
-    if (note.color) setActiveColor(note.color);
-    if (note.pinned !== undefined) setIsPinned(note.pinned);
-  }, [note]);
 
   // Handle ESC key
   useEffect(() => {
@@ -155,21 +151,38 @@ export function DraggableNoteModal({
       });
 
       pipWindow.document.title = `ruang. — ${title || "Catatan"}`;
-      pipWindow.document.body.style.margin = "0";
-      pipWindow.document.body.style.padding = "16px";
-      pipWindow.document.body.style.background = currentColorStyle.bg;
-      pipWindow.document.body.style.color = currentColorStyle.text;
-      pipWindow.document.body.style.fontFamily = "DM Sans, sans-serif";
-      pipWindow.document.body.innerHTML = `
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid ${currentColorStyle.border}; padding-bottom:6px;">
-          <strong style="font-size:10px; text-transform:uppercase; letter-spacing:0.8px;">Catatan Desktop Always-On-Top</strong>
-        </div>
-        <h3 style="margin:0 0 8px; font-size:16px; font-family:sans-serif;">${title}</h3>
-        <p style="margin:0; font-size:12px; line-height:1.5; white-space:pre-wrap;">${content || "(Tanpa catatan)"}</p>
-        <div style="font-size:9px; opacity:0.6; margin-top:20px; border-top:1px solid ${currentColorStyle.border}; padding-top:8px;">
-          Jendela ini melayang di atas semua aplikasi desktop Windows.
-        </div>
-      `;
+      const doc = pipWindow.document;
+      doc.body.style.margin = "0";
+      doc.body.style.padding = "16px";
+      doc.body.style.background = currentColorStyle.bg;
+      doc.body.style.color = currentColorStyle.text;
+      doc.body.style.fontFamily = "DM Sans, sans-serif";
+      doc.body.replaceChildren();
+
+      const headerDiv = doc.createElement("div");
+      headerDiv.style.cssText = `display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid ${currentColorStyle.border}; padding-bottom:6px;`;
+      const badge = doc.createElement("strong");
+      badge.style.cssText =
+        "font-size:10px; text-transform:uppercase; letter-spacing:0.8px;";
+      badge.textContent = "Catatan Desktop Always-On-Top";
+      headerDiv.appendChild(badge);
+
+      const heading = doc.createElement("h3");
+      heading.style.cssText =
+        "margin:0 0 8px; font-size:16px; font-family:sans-serif;";
+      heading.textContent = title || "Catatan";
+
+      const bodyP = doc.createElement("p");
+      bodyP.style.cssText =
+        "margin:0; font-size:12px; line-height:1.5; white-space:pre-wrap;";
+      bodyP.textContent = content || "(Tanpa catatan)";
+
+      const footerDiv = doc.createElement("div");
+      footerDiv.style.cssText = `font-size:9px; opacity:0.6; margin-top:20px; border-top:1px solid ${currentColorStyle.border}; padding-top:8px;`;
+      footerDiv.textContent =
+        "Jendela ini melayang di atas semua aplikasi desktop Windows.";
+
+      doc.body.append(headerDiv, heading, bodyP, footerDiv);
       onClose();
     } catch (err) {
       console.error("Gagal membuka Desktop PiP:", err);
@@ -248,7 +261,10 @@ export function DraggableNoteModal({
             <div className="pill-grip">
               <GripHorizontal size={14} />
             </div>
-            <span className="pill-dot" style={{ background: currentColorStyle.header }} />
+            <span
+              className="pill-dot"
+              style={{ background: currentColorStyle.header }}
+            />
             <strong className="pill-title">{title || "Catatan"}</strong>
             <button
               type="button"
@@ -274,14 +290,34 @@ export function DraggableNoteModal({
           <motion.div
             ref={noteRef}
             className="draggable-note-card"
-            drag
+            drag={!isMobile}
             dragControls={dragControls}
             dragListener={false}
+            dragConstraints={
+              typeof window !== "undefined"
+                ? {
+                    left: -Math.max(0, window.innerWidth / 2 - 180),
+                    right: Math.max(0, window.innerWidth / 2 - 180),
+                    top: -Math.max(0, window.innerHeight / 2 - 180),
+                    bottom: Math.max(0, window.innerHeight / 2 - 180),
+                  }
+                : undefined
+            }
             dragMomentum={false}
             dragElastic={0.08}
-            initial={{ scale: 0.9, opacity: 0, y: 15 }}
-            animate={{ scale: 1, opacity: 1, y: 0 }}
-            exit={{ scale: 0.9, opacity: 0, y: 10 }}
+            initial={
+              isMobile
+                ? { y: 40, opacity: 0 }
+                : { scale: 0.9, opacity: 0, y: 15 }
+            }
+            animate={
+              isMobile ? { y: 0, opacity: 1 } : { scale: 1, opacity: 1, y: 0 }
+            }
+            exit={
+              isMobile
+                ? { y: 40, opacity: 0 }
+                : { scale: 0.9, opacity: 0, y: 10 }
+            }
             transition={{ type: "spring", stiffness: 350, damping: 26 }}
             style={{
               backgroundColor: currentColorStyle.bg,
@@ -292,7 +328,9 @@ export function DraggableNoteModal({
             {/* Header / Drag Bar */}
             <div
               className="draggable-note-header"
-              onPointerDown={(e) => dragControls.start(e)}
+              onPointerDown={(e) => {
+                if (!isMobile) dragControls.start(e);
+              }}
               style={{
                 backgroundColor: currentColorStyle.header,
                 borderBottomColor: currentColorStyle.border,
@@ -339,39 +377,41 @@ export function DraggableNoteModal({
                   )}
                 </div>
 
-                {/* Pin Toggle */}
-                <button
-                  type="button"
-                  className={`note-header-btn ${isPinned ? "is-pinned" : ""}`}
-                  title={
-                    isPinned
-                      ? "Lepaskan pin (modal biasa)"
-                      : "Pin ke layar (tetap melayang tanpa backdrop)"
-                  }
-                  onClick={handleTogglePin}
-                >
-                  <Pin size={14} />
-                </button>
+                {/* Pin, PiP, Minimize hidden on mobile */}
+                {!isMobile && (
+                  <>
+                    <button
+                      type="button"
+                      className={`note-header-btn ${isPinned ? "is-pinned" : ""}`}
+                      title={
+                        isPinned
+                          ? "Lepaskan pin (modal biasa)"
+                          : "Pin ke layar (tetap melayang tanpa backdrop)"
+                      }
+                      onClick={handleTogglePin}
+                    >
+                      <Pin size={14} />
+                    </button>
 
-                {/* Desktop PiP Toggle */}
-                <button
-                  type="button"
-                  className="note-header-btn note-pip-btn"
-                  title="Buka melayang di Desktop Windows (Always-on-Top di luar browser)"
-                  onClick={openDesktopPiP}
-                >
-                  <ExternalLink size={14} />
-                </button>
+                    <button
+                      type="button"
+                      className="note-header-btn note-pip-btn"
+                      title="Buka melayang di Desktop Windows (Always-on-Top di luar browser)"
+                      onClick={openDesktopPiP}
+                    >
+                      <ExternalLink size={14} />
+                    </button>
 
-                {/* Minimize / Perkecil Button */}
-                <button
-                  type="button"
-                  className="note-header-btn"
-                  title="Perkecil jadi widget melayang (jika layar penuh)"
-                  onClick={() => setIsMinimized(true)}
-                >
-                  <Minimize2 size={14} />
-                </button>
+                    <button
+                      type="button"
+                      className="note-header-btn"
+                      title="Perkecil jadi widget melayang (jika layar penuh)"
+                      onClick={() => setIsMinimized(true)}
+                    >
+                      <Minimize2 size={14} />
+                    </button>
+                  </>
+                )}
 
                 {/* Close Button */}
                 <button

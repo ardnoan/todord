@@ -109,11 +109,7 @@ export function AdminParametersView({
             <Sliders size={18} />
             <h2>Konfigurasi Parameter</h2>
           </div>
-          <button
-            type="button"
-            className="button-quiet"
-            onClick={handleReset}
-          >
+          <button type="button" className="button-quiet" onClick={handleReset}>
             <RotateCcw size={14} /> Reset Default
           </button>
         </div>

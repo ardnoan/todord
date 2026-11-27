@@ -56,11 +56,15 @@ export function EmailVerificationView({
         email: email.trim(),
       });
       if (error) throw error;
-      setResendNotice("Email konfirmasi baru telah dikirim! Periksa kotak masukmu.");
+      setResendNotice(
+        "Email konfirmasi baru telah dikirim! Periksa kotak masukmu."
+      );
       setResendCooldown(60);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "";
-      setResendError(msg || "Gagal mengirim ulang email. Coba beberapa saat lagi.");
+      setResendError(
+        msg || "Gagal mengirim ulang email. Coba beberapa saat lagi."
+      );
     } finally {
       setIsResending(false);
     }
@@ -97,8 +101,8 @@ export function EmailVerificationView({
       <span className="eyebrow">LANGKAH TERAKHIR · KONFIRMASI AKUN</span>
       <h2>Periksa Kotak Masuk Emailmu</h2>
       <p className="email-verify-desc">
-        Kami telah mengirimkan tautan konfirmasi pendaftaran. Buka email dan klik
-        tautan tersebut untuk mengaktifkan akunmu.
+        Kami telah mengirimkan tautan konfirmasi pendaftaran. Buka email dan
+        klik tautan tersebut untuk mengaktifkan akunmu.
       </p>
 
       {/* Email Display Badge with Copy */}
@@ -110,7 +114,11 @@ export function EmailVerificationView({
           onClick={handleCopy}
           title="Salin email"
         >
-          {copied ? <Check size={13} className="text-success" /> : <Copy size={13} />}
+          {copied ? (
+            <Check size={13} className="text-success" />
+          ) : (
+            <Copy size={13} />
+          )}
           <span>{copied ? "Tersalin" : "Salin"}</span>
         </button>
       </div>
@@ -130,20 +138,21 @@ export function EmailVerificationView({
       <div className="email-verify-tips">
         <div className="verify-step-row">
           <span className="step-num">1</span>
-          <p>
-            Buka aplikasi atau web emailmu di tab baru.
-          </p>
+          <p>Buka aplikasi atau web emailmu di tab baru.</p>
         </div>
         <div className="verify-step-row">
           <span className="step-num">2</span>
           <p>
-            Cari pesan dari <strong>ruang. / Supabase</strong>. Periksa juga folder <em>Spam</em> atau <em>Promosi</em> jika tidak langsung terlihat.
+            Cari pesan dari <strong>ruang. / Supabase</strong>. Periksa juga
+            folder <em>Spam</em> atau <em>Promosi</em> jika tidak langsung
+            terlihat.
           </p>
         </div>
         <div className="verify-step-row">
           <span className="step-num">3</span>
           <p>
-            Klik tombol <strong>Confirm your email</strong> di dalam pesan, lalu kembali ke sini untuk masuk.
+            Klik tombol <strong>Confirm your email</strong> di dalam pesan, lalu
+            kembali ke sini untuk masuk.
           </p>
         </div>
       </div>
@@ -186,16 +195,13 @@ export function EmailVerificationView({
           onClick={handleResend}
           disabled={resendCooldown > 0 || isResending}
         >
-          <RefreshCw
-            size={13}
-            className={isResending ? "animate-spin" : ""}
-          />
+          <RefreshCw size={13} className={isResending ? "animate-spin" : ""} />
           <span>
             {isResending
               ? "Mengirim..."
               : resendCooldown > 0
-              ? `Kirim ulang (${resendCooldown}s)`
-              : "Kirim ulang email"}
+                ? `Kirim ulang (${resendCooldown}s)`
+                : "Kirim ulang email"}
           </span>
         </button>
       </div>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useRef } from "react";
 import { motion, AnimatePresence, useDragControls } from "framer-motion";
 import {
   GripHorizontal,
@@ -13,7 +13,10 @@ import {
   Clock3,
   ListTodo,
 } from "lucide-react";
-import type { Task } from "../types";
+import type { LayoutMode, Task } from "../types";
+import { useIsMobile } from "../hooks/useIsMobile";
+import { useDialogA11y } from "../hooks/useDialogA11y";
+import { getLocalDateString } from "../lib/date";
 
 interface ActionListModalProps {
   isOpen: boolean;
@@ -21,12 +24,18 @@ interface ActionListModalProps {
   subtitle: string;
   icon: React.ElementType;
   tasks: Task[];
+  taskCategories?: string[];
+  taskLayout?: LayoutMode;
   defaultCategory?: string;
   isCategoryLocked?: boolean;
   onToggleTask: (task: Task) => Promise<void>;
   onOpenTaskDetail: (task: Task) => void;
   onAddTask?: (title: string, category: string) => Promise<void>;
-  onMoveTask?: (taskId: string, direction: "up" | "down", visibleIds: string[]) => void;
+  onMoveTask?: (
+    taskId: string,
+    direction: "up" | "down",
+    visibleIds: string[]
+  ) => void;
   onClose: () => void;
 }
 
@@ -36,6 +45,8 @@ export function ActionListModal({
   subtitle,
   icon: Icon,
   tasks,
+  taskCategories = ["Personal", "Work", "Study"],
+  taskLayout = "list",
   defaultCategory = "Work",
   isCategoryLocked = false,
   onToggleTask,
@@ -44,27 +55,17 @@ export function ActionListModal({
   onMoveTask,
   onClose,
 }: ActionListModalProps) {
+  const isMobile = useIsMobile();
   const [isMinimized, setIsMinimized] = useState(false);
+  const effectiveMinimized = !isMobile && isMinimized;
   const [quickTitle, setQuickTitle] = useState("");
   const [taskCategory, setTaskCategory] = useState<string>(defaultCategory);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const dragControls = useDragControls();
+  const cardRef = useRef<HTMLDivElement>(null);
+  const todayStr = getLocalDateString();
 
-  useEffect(() => {
-    if (defaultCategory) {
-      setTaskCategory(defaultCategory);
-    }
-  }, [defaultCategory]);
-
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape" && isOpen && !isMinimized) {
-        onClose();
-      }
-    }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, isMinimized, onClose]);
+  useDialogA11y(isOpen && !effectiveMinimized, onClose, cardRef);
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -83,9 +84,11 @@ export function ActionListModal({
 
   return (
     <AnimatePresence>
-      <div className={`action-modal-overlay ${isMinimized ? "is-minimized-overlay" : ""}`}>
+      <div
+        className={`action-modal-overlay ${effectiveMinimized ? "is-minimized-overlay" : ""}`}
+      >
         {/* Semi-transparent backdrop only when not minimized */}
-        {!isMinimized && (
+        {!effectiveMinimized && (
           <motion.div
             className="action-modal-backdrop"
             initial={{ opacity: 0 }}
@@ -98,7 +101,7 @@ export function ActionListModal({
         {/* ========================================================
             CASE A: MINIMIZED PILL (Ketika diperkecil agar tidak penuh)
             ======================================================== */}
-        {isMinimized ? (
+        {effectiveMinimized ? (
           <motion.div
             className="action-minimized-pill"
             drag
@@ -138,26 +141,55 @@ export function ActionListModal({
              CASE B: FULL DRAGGABLE ACTION CARD MODAL
              ======================================================== */
           <motion.div
+            ref={cardRef}
             className="action-modal-card"
-            drag
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="action-modal-title"
+            drag={!isMobile}
             dragControls={dragControls}
             dragListener={false}
+            dragConstraints={
+              typeof window !== "undefined"
+                ? {
+                    left: -Math.max(0, window.innerWidth / 2 - 220),
+                    right: Math.max(0, window.innerWidth / 2 - 220),
+                    top: -Math.max(0, window.innerHeight / 2 - 220),
+                    bottom: Math.max(0, window.innerHeight / 2 - 220),
+                  }
+                : undefined
+            }
             dragMomentum={false}
             dragElastic={0.08}
-            initial={{ scale: 0.92, opacity: 0, y: 15 }}
-            animate={{ scale: 1, opacity: 1, y: 0 }}
-            exit={{ scale: 0.92, opacity: 0, y: 10 }}
+            initial={
+              isMobile
+                ? { y: 40, opacity: 0 }
+                : { scale: 0.92, opacity: 0, y: 15 }
+            }
+            animate={
+              isMobile ? { y: 0, opacity: 1 } : { scale: 1, opacity: 1, y: 0 }
+            }
+            exit={
+              isMobile
+                ? { y: 40, opacity: 0 }
+                : { scale: 0.92, opacity: 0, y: 10 }
+            }
             transition={{ type: "spring", stiffness: 380, damping: 28 }}
           >
             {/* Header / Drag Grip */}
             <div
               className="action-modal-header"
-              onPointerDown={(e) => dragControls.start(e)}
+              onPointerDown={(e) => {
+                if (!isMobile) dragControls.start(e);
+              }}
             >
-              <div className="action-drag-handle" title="Geser kartu aksi ini ke mana saja di layar">
-                <GripHorizontal size={17} />
+              <div
+                className="action-drag-handle"
+                title="Geser kartu aksi ini ke mana saja di layar"
+              >
+                {!isMobile && <GripHorizontal size={17} />}
                 <div className="action-header-text">
-                  <span className="action-header-badge">
+                  <span id="action-modal-title" className="action-header-badge">
                     <Icon size={13} />
                     <span>{title}</span>
                   </span>
@@ -166,18 +198,21 @@ export function ActionListModal({
               </div>
 
               <div className="action-modal-controls">
-                <button
-                  type="button"
-                  className="action-control-btn"
-                  title="Perkecil jadi widget melayang (jika layar penuh)"
-                  onClick={() => setIsMinimized(true)}
-                >
-                  <Minimize2 size={14} />
-                </button>
+                {!isMobile && (
+                  <button
+                    type="button"
+                    className="action-control-btn"
+                    title="Perkecil jadi widget melayang (jika layar penuh)"
+                    onClick={() => setIsMinimized(true)}
+                  >
+                    <Minimize2 size={14} />
+                  </button>
+                )}
                 <button
                   type="button"
                   className="action-control-btn action-close-btn"
                   title="Tutup (Esc)"
+                  aria-label="Tutup"
                   onClick={onClose}
                 >
                   <X size={15} />
@@ -196,12 +231,17 @@ export function ActionListModal({
                   title={
                     isCategoryLocked
                       ? `Kategori dikunci ke ${taskCategory} sesuai tab aktif`
-                      : "Pilih kategori tugas (Work / Personal / Study)"
+                      : "Pilih kategori tugas"
                   }
                 >
-                  <option value="Work">Work</option>
-                  <option value="Personal">Personal</option>
-                  <option value="Study">Study</option>
+                  {taskCategories.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
+                  {!taskCategories.includes(taskCategory) && (
+                    <option value={taskCategory}>{taskCategory}</option>
+                  )}
                 </select>
                 <input
                   type="text"
@@ -222,14 +262,17 @@ export function ActionListModal({
             )}
 
             {/* Tasks List */}
-            <div className="action-modal-list">
+            <div className={`action-modal-list layout-${taskLayout}`}>
               {tasks.length > 0 ? (
                 tasks.map((task, index) => (
                   <div
                     key={task.id}
                     className={`action-task-item ${task.completed ? "completed" : ""}`}
                   >
-                    <span className="task-order-badge" title={`Urutan #${index + 1}`}>
+                    <span
+                      className="task-order-badge"
+                      title={`Urutan #${index + 1}`}
+                    >
                       {index + 1}
                     </span>
 
@@ -237,22 +280,39 @@ export function ActionListModal({
                       type="button"
                       className={`task-check ${task.completed ? "checked" : ""}`}
                       onClick={() => onToggleTask(task)}
-                      title={task.completed ? "Tandai belum selesai" : "Tandai selesai"}
+                      title={
+                        task.completed
+                          ? "Tandai belum selesai"
+                          : "Tandai selesai"
+                      }
                     >
                       {task.completed && <Check size={12} />}
                     </button>
 
                     <div
                       className="action-task-info"
+                      role="button"
+                      tabIndex={0}
                       onClick={() => onOpenTaskDetail(task)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          onOpenTaskDetail(task);
+                        }
+                      }}
                       title="Klik untuk melihat detail tugas"
                     >
                       <span className="action-task-title">{task.title}</span>
                       <div className="action-task-meta">
                         <span className="action-task-cat">{task.category}</span>
                         {task.dueDate && (
-                          <span className="action-task-due">
+                          <span
+                            className={`action-task-due ${task.dueDate < todayStr && !task.completed ? "overdue-badge" : ""}`}
+                          >
                             <Clock3 size={11} /> {task.dueDate}
+                            {task.dueDate < todayStr &&
+                              !task.completed &&
+                              " · Terlambat"}
                           </span>
                         )}
                         {task.subtasks.length > 0 && (
@@ -324,13 +384,15 @@ export function ActionListModal({
               <span className="action-footer-count">
                 Total: <strong>{tasks.length}</strong> tugas
               </span>
-              <button
-                type="button"
-                className="button-quiet action-minimize-btn"
-                onClick={() => setIsMinimized(true)}
-              >
-                <Minimize2 size={12} /> Perkecil ke Pojok
-              </button>
+              {!isMobile && (
+                <button
+                  type="button"
+                  className="button-quiet action-minimize-btn"
+                  onClick={() => setIsMinimized(true)}
+                >
+                  <Minimize2 size={12} /> Perkecil ke Pojok
+                </button>
+              )}
             </div>
           </motion.div>
         )}

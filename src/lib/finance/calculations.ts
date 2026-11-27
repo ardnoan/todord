@@ -123,7 +123,9 @@ export function calculateAllAccountBalances(
       }
     }
 
-    const currentBalance = roundMoney(openingBalance + totalInflow - totalOutflow);
+    const currentBalance = roundMoney(
+      openingBalance + totalInflow - totalOutflow
+    );
 
     return {
       account,
@@ -216,8 +218,8 @@ export function calculateBudgetProgress(
         limitAmount > 0
           ? Math.round((spentAmount / limitAmount) * 1000) / 10
           : spentAmount > 0
-          ? 100
-          : 0;
+            ? 100
+            : 0;
 
       return {
         budget,
@@ -272,7 +274,13 @@ export function calculateCategoryReport(
   const categoryMap = new Map(categories.map((c) => [c.id, c]));
   const buckets = new Map<
     string,
-    { categoryId: string | null; name: string; total: number; count: number; color: string }
+    {
+      categoryId: string | null;
+      name: string;
+      total: number;
+      count: number;
+      color: string;
+    }
   >();
 
   let grandTotal = 0;
